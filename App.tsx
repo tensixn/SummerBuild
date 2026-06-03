@@ -6,9 +6,10 @@ import MapScreen from "./screens/MapScreen";
 import ProfileScreen from "./screens/ProfileScreen";
 import LoginScreen from "./screens/LoginScreen";
 import SignupScreen from "./screens/SignupScreen";
+import SearchScreen from "./screens/SearchScreen";
 import { supabase } from "./lib/supabase";
 
-type Tab = "games" | "map" | "profile";
+type Tab = "games" | "map" | "profile" | "search"; // ← only one declaration
 type AuthScreen = "login" | "signup";
 
 export default function App() {
@@ -32,15 +33,9 @@ export default function App() {
 
   if (!loggedIn) {
     return authScreen === "login" ? (
-      <LoginScreen
-        onSwitch={() => setAuthScreen("signup")}
-        onLogin={() => setLoggedIn(true)}
-      />
+      <LoginScreen onSwitch={() => setAuthScreen("signup")} onLogin={() => setLoggedIn(true)} />
     ) : (
-      <SignupScreen
-        onSwitch={() => setAuthScreen("login")}
-        onSignup={() => setAuthScreen("login")}
-      />
+      <SignupScreen onSwitch={() => setAuthScreen("login")} onSignup={() => setAuthScreen("login")} />
     );
   }
 
@@ -48,17 +43,24 @@ export default function App() {
     <View style={styles.root}>
       <StatusBar style="dark" />
       <View style={styles.content}>
-        {tab === "games" ? <HomeScreen /> : tab === "map" ? <MapScreen /> : <ProfileScreen />}
+        {tab === "games" ? <HomeScreen /> :
+         tab === "map" ? <MapScreen /> :
+         tab === "search" ? <SearchScreen /> :
+         <ProfileScreen />}
       </View>
       <SafeAreaView style={styles.navSafe}>
         <View style={styles.nav}>
           <Pressable style={styles.navItem} onPress={() => setTab("games")}>
-            <Text style={[styles.navIcon, tab === "games" && styles.navIconActive]}>⚡</Text>
+            <Text style={[styles.navIcon, tab === "games" && styles.navIconActive]}>⚡️</Text>
             <Text style={[styles.navLabel, tab === "games" && styles.navLabelActive]}>Games</Text>
           </Pressable>
           <Pressable style={styles.navItem} onPress={() => setTab("map")}>
             <Text style={[styles.navIcon, tab === "map" && styles.navIconActive]}>🗺</Text>
             <Text style={[styles.navLabel, tab === "map" && styles.navLabelActive]}>Map</Text>
+          </Pressable>
+          <Pressable style={styles.navItem} onPress={() => setTab("search")}>  {/* ← added */}
+            <Text style={[styles.navIcon, tab === "search" && styles.navIconActive]}>🔍</Text>
+            <Text style={[styles.navLabel, tab === "search" && styles.navLabelActive]}>Search</Text>
           </Pressable>
           <Pressable style={styles.navItem} onPress={() => setTab("profile")}>
             <Text style={[styles.navIcon, tab === "profile" && styles.navIconActive]}>👤</Text>

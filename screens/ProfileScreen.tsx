@@ -116,13 +116,12 @@ export default function ProfileScreen() {
     const asset = result.assets[0];
     setAvatarUri(asset.uri);
 
-    // Upload to Supabase Storage
     const { data: { user } } = await supabase.auth.getUser();
     if (!user || !asset.base64) return;
 
     const filePath = `avatars/${user.id}.jpg`;
     const { error } = await supabase.storage
-      .from("avatars")
+      .from("avartars")
       .upload(filePath, decode(asset.base64), {
         contentType: "image/jpeg",
         upsert: true,
@@ -130,7 +129,7 @@ export default function ProfileScreen() {
 
     if (error) { Alert.alert("Upload failed", error.message); return; }
 
-    const { data: urlData } = supabase.storage.from("avatars").getPublicUrl(filePath);
+    const { data: urlData } = supabase.storage.from("avartars").getPublicUrl(filePath);
     const publicUrl = urlData.publicUrl;
 
     await supabase.from("profiles").update({ avatar_url: publicUrl }).eq("id", user.id);
@@ -184,7 +183,7 @@ export default function ProfileScreen() {
 
   if (loading) return <ActivityIndicator style={{ flex: 1 }} />;
 
-  const isOwnProfile = true; // viewing your own profile for now
+  const isOwnProfile = true;
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -250,27 +249,41 @@ export default function ProfileScreen() {
 
         {/* Sports Interests */}
         <Text style={styles.sectionLabel}>Sports Interests</Text>
-        {editing && (
-          <Text style={styles.editHint}>Tap to select your interests</Text>
+        {editing ? (
+          <>
+            <Text style={styles.editHint}>Tap to select your interests</Text>
+            <View style={styles.sportsRow}>
+              {SPORT_OPTIONS.map((sport) => {
+                const active = selectedSports.includes(sport);
+                return (
+                  <Pressable
+                    key={sport}
+                    style={[styles.sportChip, active && styles.sportChipActive]}
+                    onPress={() => toggleSport(sport)}
+                  >
+                    <Text style={[styles.sportChipText, active && styles.sportChipTextActive]}>
+                      {sport}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </>
+        ) : (
+          <View style={styles.sportsRow}>
+            {(profile?.sports_interests ?? []).length > 0 ? (
+              profile?.sports_interests.map((sport) => (
+                <View key={sport} style={styles.sportChipActive}>
+                  <Text style={styles.sportChipTextActive}>{sport}</Text>
+                </View>
+              ))
+            ) : (
+              <Text style={styles.noSportsText}>
+                No sports interests indicated.{isOwnProfile ? " Tap Edit profile to add some!" : ""}
+              </Text>
+            )}
+          </View>
         )}
-        <View style={styles.sportsRow}>
-          {SPORT_OPTIONS.map((sport) => {
-            const active = editing
-              ? selectedSports.includes(sport)
-              : profile?.sports_interests.includes(sport);
-            return (
-              <Pressable
-                key={sport}
-                style={[styles.sportChip, active && styles.sportChipActive]}
-                onPress={() => editing && toggleSport(sport)}
-              >
-                <Text style={[styles.sportChipText, active && styles.sportChipTextActive]}>
-                  {sport}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
 
         {/* Reviews - only others can leave reviews */}
         {!isOwnProfile && (
@@ -362,10 +375,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20,
     borderWidth: 1, borderColor: "#e0e0e0", backgroundColor: "#fff",
   },
-  sportChipActive: { backgroundColor: "#212121", borderColor: "#212121" },
+  sportChipActive: {
+    paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20,
+    backgroundColor: "#212121", borderWidth: 1, borderColor: "#212121",
+  },
   sportChipText: { fontSize: 13, color: "#757575" },
-  sportChipTextActive: { color: "#fff", fontWeight: "600" },
+  sportChipTextActive: { color: "#fff", fontWeight: "600", fontSize: 13 },
   editHint: { fontSize: 12, color: "#9e9e9e", marginBottom: 8 },
+  noSportsText: { fontSize: 13, color: "#9e9e9e", fontStyle: "italic" },
   reviewInputRow: { flexDirection: "row", gap: 8, marginBottom: 16 },
   reviewInput: {
     flex: 1, borderWidth: 1, borderColor: "#e0e0e0", borderRadius: 10,
