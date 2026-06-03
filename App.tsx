@@ -66,10 +66,6 @@ export default function App() {
             <Text style={[styles.navIcon, tab === "profile" && styles.navIconActive]}>👤</Text>
             <Text style={[styles.navLabel, tab === "profile" && styles.navLabelActive]}>Profile</Text>
           </Pressable>
-          <Pressable style={styles.navItem} onPress={() => supabase.auth.signOut()}>
-            <Text style={styles.navIcon}>🚪</Text>
-            <Text style={styles.navLabel}>Sign out</Text>
-          </Pressable>
         </View>
       </SafeAreaView>
     </View>

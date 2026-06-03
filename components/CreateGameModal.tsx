@@ -8,7 +8,9 @@ import {
   ScrollView,
   StyleSheet,
   Alert,
+  Platform,
 } from "react-native";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import { supabase } from "../lib/supabase";
 import { NTU_LOCATIONS, SKILL_LEVELS, SPORTS, Sport } from "../lib/types";
 
@@ -23,6 +25,9 @@ const SPORT_OPTIONS = SPORTS.filter((s) => s !== "All") as Exclude<Sport, "All">
 export default function CreateGameModal({ visible, onClose, onCreated }: Props) {
   const [sport, setSport] = useState<string>("Badminton");
   const [location, setLocation] = useState<string>(NTU_LOCATIONS[0]);
+  const [startTime, setStartTime] = useState<Date>(new Date(Date.now() + 2 * 60 * 60 * 1000));
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showTimePicker, setShowTimePicker] = useState(false);
   const [maxPlayers, setMaxPlayers] = useState("4");
   const [skillLevel, setSkillLevel] = useState("Chill");
   const [description, setDescription] = useState("");
@@ -34,16 +39,22 @@ export default function CreateGameModal({ visible, onClose, onCreated }: Props) 
       Alert.alert("Invalid", "Max players must be between 2 and 22.");
       return;
     }
+    if (startTime.getTime() <= Date.now()) {
+      Alert.alert("Invalid", "Start time must be in the future.");
+      return;
+    }
 
     setLoading(true);
+    const { data: { user } } = await supabase.auth.getUser();
     const { error } = await supabase.from("games").insert({
       sport,
       location,
-      start_time: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+      start_time: startTime.toISOString(),
       max_players: max,
       skill_level: skillLevel,
       description: description.trim() || null,
       status: "open",
+      created_by: user?.id ?? null,
     });
     setLoading(false);
 
@@ -53,8 +64,33 @@ export default function CreateGameModal({ visible, onClose, onCreated }: Props) 
     }
 
     setDescription("");
+    setStartTime(new Date(Date.now() + 2 * 60 * 60 * 1000));
     onCreated();
     onClose();
+  }
+
+  function formatDate(d: Date) {
+    return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+  }
+
+  function formatTime(d: Date) {
+    return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  }
+
+  function onDateChange(_: any, selected?: Date) {
+    if (Platform.OS === "android") setShowDatePicker(false);
+    if (!selected) return;
+    const updated = new Date(startTime);
+    updated.setFullYear(selected.getFullYear(), selected.getMonth(), selected.getDate());
+    setStartTime(updated);
+  }
+
+  function onTimeChange(_: any, selected?: Date) {
+    if (Platform.OS === "android") setShowTimePicker(false);
+    if (!selected) return;
+    const updated = new Date(startTime);
+    updated.setHours(selected.getHours(), selected.getMinutes(), 0, 0);
+    setStartTime(updated);
   }
 
   function OptionRow({
@@ -112,6 +148,32 @@ export default function CreateGameModal({ visible, onClose, onCreated }: Props) 
             ))}
           </View>
         </ScrollView>
+
+        <Text style={styles.label}>Date & Time</Text>
+        <View style={styles.dateTimeRow}>
+          <Pressable style={styles.dateTimeBtn} onPress={() => setShowDatePicker(true)}>
+            <Text style={styles.dateTimeBtnText}>{formatDate(startTime)}</Text>
+          </Pressable>
+          <Pressable style={styles.dateTimeBtn} onPress={() => setShowTimePicker(true)}>
+            <Text style={styles.dateTimeBtnText}>{formatTime(startTime)}</Text>
+          </Pressable>
+        </View>
+
+        {showDatePicker && (
+          <DateTimePicker
+            value={startTime}
+            mode="date"
+            minimumDate={new Date()}
+            onChange={onDateChange}
+          />
+        )}
+        {showTimePicker && (
+          <DateTimePicker
+            value={startTime}
+            mode="time"
+            onChange={onTimeChange}
+          />
+        )}
 
         <Text style={styles.label}>Skill level</Text>
         <OptionRow options={SKILL_LEVELS} value={skillLevel} onSelect={setSkillLevel} />
@@ -205,6 +267,24 @@ const styles = StyleSheet.create({
   optionTextActive: {
     color: "#fff",
     fontWeight: "600",
+  },
+  dateTimeRow: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  dateTimeBtn: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: "#e0e0e0",
+    borderRadius: 10,
+    padding: 12,
+    backgroundColor: "#fafafa",
+    alignItems: "center",
+  },
+  dateTimeBtnText: {
+    fontSize: 14,
+    color: "#212121",
+    fontWeight: "500",
   },
   input: {
     borderWidth: 1,

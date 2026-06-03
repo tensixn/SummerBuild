@@ -13,7 +13,7 @@ import {
 import MapView, { Marker, Circle, PROVIDER_DEFAULT } from "react-native-maps";
 import * as Location from "expo-location";
 import { supabase } from "../lib/supabase";
-import { Game, DEMO_USER } from "../lib/types";
+import { Game } from "../lib/types";
 import { Court, NTU_COURTS, NTU_CENTER, findCourt } from "../lib/courts";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
@@ -100,10 +100,12 @@ export default function MapScreen() {
   }, []);
 
   const fetchJoined = useCallback(async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
     const { data } = await supabase
       .from("game_participants")
       .select("game_id")
-      .eq("user_name", DEMO_USER);
+      .eq("user_name", user.email);
     if (data) setJoinedIds(new Set(data.map((r) => r.game_id)));
   }, []);
 
@@ -165,9 +167,11 @@ export default function MapScreen() {
       Alert.alert("Full", "This game is already full.");
       return;
     }
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
     const { error } = await supabase
       .from("game_participants")
-      .insert({ game_id: game.id, user_name: DEMO_USER });
+      .insert({ game_id: game.id, user_name: user.email });
     if (error) { Alert.alert("Error", error.message); return; }
     setJoinedIds((prev) => new Set(prev).add(game.id));
     fetchGames();
@@ -181,11 +185,13 @@ export default function MapScreen() {
   }
 
   async function leaveGame(game: Game) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
     const { error } = await supabase
       .from("game_participants")
       .delete()
       .eq("game_id", game.id)
-      .eq("user_name", DEMO_USER);
+      .eq("user_name", user.email);
     if (error) { Alert.alert("Error", error.message); return; }
     setJoinedIds((prev) => {
       const next = new Set(prev);

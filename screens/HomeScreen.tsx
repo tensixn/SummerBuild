@@ -10,7 +10,7 @@ import {
   SafeAreaView,
 } from "react-native";
 import { supabase } from "../lib/supabase";
-import { Game, Sport, SPORTS, DEMO_USER } from "../lib/types";
+import { Game, Sport, SPORTS } from "../lib/types";
 import GameCard from "../components/GameCard";
 import CreateGameModal from "../components/CreateGameModal";
 
@@ -20,6 +20,7 @@ export default function HomeScreen() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<Sport>("All");
   const [modalVisible, setModalVisible] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   const fetchGames = useCallback(async () => {
     setLoading(true);
@@ -38,10 +39,12 @@ export default function HomeScreen() {
   }, []);
 
   const fetchJoined = useCallback(async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
     const { data } = await supabase
       .from("game_participants")
       .select("game_id")
-      .eq("user_name", DEMO_USER);
+      .eq("user_name", user.email);
 
     if (data) {
       setJoinedIds(new Set(data.map((r) => r.game_id)));
@@ -49,6 +52,9 @@ export default function HomeScreen() {
   }, []);
 
   useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user) setCurrentUserId(user.id);
+    });
     fetchGames();
     fetchJoined();
 
@@ -71,9 +77,11 @@ export default function HomeScreen() {
       Alert.alert("Full", "This game is already full.");
       return;
     }
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
     const { error } = await supabase
       .from("game_participants")
-      .insert({ game_id: game.id, user_name: DEMO_USER });
+      .insert({ game_id: game.id, user_name: user.email });
 
     if (error) {
       Alert.alert("Error", error.message);
@@ -83,12 +91,36 @@ export default function HomeScreen() {
     fetchGames();
   }
 
+  function cancelGame(game: Game) {
+    Alert.alert(
+      "Cancel game?",
+      "This will remove the game for all players.",
+      [
+        { text: "Keep it", style: "cancel" },
+        {
+          text: "Cancel game",
+          style: "destructive",
+          onPress: async () => {
+            const { error } = await supabase
+              .from("games")
+              .update({ status: "cancelled" })
+              .eq("id", game.id);
+            if (error) Alert.alert("Error", error.message);
+            else fetchGames();
+          },
+        },
+      ]
+    );
+  }
+
   async function leaveGame(game: Game) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
     const { error } = await supabase
       .from("game_participants")
       .delete()
       .eq("game_id", game.id)
-      .eq("user_name", DEMO_USER);
+      .eq("user_name", user.email);
 
     if (error) {
       Alert.alert("Error", error.message);
@@ -166,6 +198,7 @@ export default function HomeScreen() {
               isJoined={joinedIds.has(item.id)}
               onJoin={joinGame}
               onLeave={leaveGame}
+              onCancel={item.created_by === currentUserId ? cancelGame : undefined}
             />
           )}
           contentContainerStyle={styles.list}

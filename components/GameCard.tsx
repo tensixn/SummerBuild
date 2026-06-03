@@ -6,6 +6,7 @@ type Props = {
   isJoined: boolean;
   onJoin: (game: Game) => void;
   onLeave: (game: Game) => void;
+  onCancel?: (game: Game) => void;
 };
 
 const SPORT_COLORS: Record<string, { bg: string; text: string }> = {
@@ -37,7 +38,7 @@ function SlotBar({ current, max }: { current: number; max: number }) {
   );
 }
 
-export default function GameCard({ game, isJoined, onJoin, onLeave }: Props) {
+export default function GameCard({ game, isJoined, onJoin, onLeave, onCancel }: Props) {
   const isFull = game.current_players >= game.max_players;
   const sportColor = SPORT_COLORS[game.sport] ?? { bg: "#f5f5f5", text: "#616161" };
 
@@ -70,7 +71,11 @@ export default function GameCard({ game, isJoined, onJoin, onLeave }: Props) {
         </Text>
 
         <View style={styles.btnGroup}>
-          {isJoined ? (
+          {onCancel ? (
+            <Pressable style={styles.cancelBtn} onPress={() => onCancel(game)}>
+              <Text style={styles.cancelBtnText}>Cancel game</Text>
+            </Pressable>
+          ) : isJoined ? (
             <>
               <View style={styles.joinedBadge}>
                 <Text style={styles.joinedBadgeText}>Joined</Text>
@@ -202,6 +207,19 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "500",
     color: "#2e7d32",
+  },
+  cancelBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 8,
+    backgroundColor: "#fce4ec",
+    borderWidth: 1,
+    borderColor: "#f8bbd0",
+  },
+  cancelBtnText: {
+    fontSize: 13,
+    fontWeight: "500",
+    color: "#c62828",
   },
   leaveBtn: {
     paddingHorizontal: 14,

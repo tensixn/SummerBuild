@@ -8,6 +8,7 @@ export type Game = {
   skill_level: string | null;
   description: string | null;
   status: string;
+  created_by: string | null;
 };
 
 export type Sport =
@@ -39,6 +40,3 @@ export const NTU_LOCATIONS = [
 ];
 
 export const SKILL_LEVELS = ["Chill", "Intermediate", "Competitive"];
-
-// Temporary stand-in until you add Supabase Auth
-export const DEMO_USER = "Demo User";

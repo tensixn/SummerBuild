@@ -36,6 +36,7 @@ export default function ProfileScreen() {
   const [submittingReview, setSubmittingReview] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
+  const [friends, setFriends] = useState<Profile[]>([]);
 
   const fetchProfile = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -93,11 +94,29 @@ export default function ProfileScreen() {
     setGamesCreated(created ?? 0);
   }, []);
 
+  const fetchFriends = useCallback(async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { data: rows } = await supabase
+      .from("friends")
+      .select("requester_id, receiver_id")
+      .eq("status", "accepted")
+      .or(`requester_id.eq.${user.id},receiver_id.eq.${user.id}`);
+    if (!rows || rows.length === 0) { setFriends([]); return; }
+    const ids = rows.map((r) => r.requester_id === user.id ? r.receiver_id : r.requester_id);
+    const { data: profiles } = await supabase
+      .from("profiles")
+      .select("id, username, avatar_url, sports_interests")
+      .in("id", ids);
+    if (profiles) setFriends(profiles);
+  }, []);
+
   useEffect(() => {
     fetchProfile();
     fetchReviews();
     fetchStats();
-  }, [fetchProfile, fetchReviews, fetchStats]);
+    fetchFriends();
+  }, [fetchProfile, fetchReviews, fetchStats, fetchFriends]);
 
   async function pickImage() {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -121,7 +140,7 @@ export default function ProfileScreen() {
 
     const filePath = `avatars/${user.id}.jpg`;
     const { error } = await supabase.storage
-      .from("avartars")
+      .from("avatars")
       .upload(filePath, decode(asset.base64), {
         contentType: "image/jpeg",
         upsert: true,
@@ -129,7 +148,7 @@ export default function ProfileScreen() {
 
     if (error) { Alert.alert("Upload failed", error.message); return; }
 
-    const { data: urlData } = supabase.storage.from("avartars").getPublicUrl(filePath);
+    const { data: urlData } = supabase.storage.from("avatars").getPublicUrl(filePath);
     const publicUrl = urlData.publicUrl;
 
     await supabase.from("profiles").update({ avatar_url: publicUrl }).eq("id", user.id);
@@ -183,7 +202,7 @@ export default function ProfileScreen() {
 
   if (loading) return <ActivityIndicator style={{ flex: 1 }} />;
 
-  const isOwnProfile = true;
+  const isOwnProfile = currentUserId === profile?.id;
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -245,6 +264,11 @@ export default function ProfileScreen() {
             <Text style={styles.statNum}>{reviews.length}</Text>
             <Text style={styles.statLabel}>Reviews</Text>
           </View>
+          <View style={styles.statDivider} />
+          <View style={styles.statBox}>
+            <Text style={styles.statNum}>{friends.length}</Text>
+            <Text style={styles.statLabel}>Friends</Text>
+          </View>
         </View>
 
         {/* Sports Interests */}
@@ -283,6 +307,32 @@ export default function ProfileScreen() {
               </Text>
             )}
           </View>
+        )}
+
+        {/* Friends */}
+        <Text style={styles.sectionLabel}>Friends ({friends.length})</Text>
+        {friends.length === 0 ? (
+          <Text style={styles.emptyText}>No friends yet. Find players in the Search tab!</Text>
+        ) : (
+          friends.map((f) => (
+            <View key={f.id} style={styles.friendCard}>
+              {f.avatar_url ? (
+                <Image source={{ uri: f.avatar_url }} style={styles.friendAvatar} />
+              ) : (
+                <View style={styles.friendAvatarPlaceholder}>
+                  <Text style={styles.friendAvatarText}>{f.username[0].toUpperCase()}</Text>
+                </View>
+              )}
+              <View style={styles.friendInfo}>
+                <Text style={styles.friendUsername}>{f.username}</Text>
+                {f.sports_interests.length > 0 && (
+                  <Text style={styles.friendSports} numberOfLines={1}>
+                    {f.sports_interests.join(" · ")}
+                  </Text>
+                )}
+              </View>
+            </View>
+          ))
         )}
 
         {/* Reviews - only others can leave reviews */}
@@ -325,6 +375,19 @@ export default function ProfileScreen() {
             </View>
           ))
         )}
+
+        {/* Sign Out */}
+        <Pressable
+          style={styles.signOutBtn}
+          onPress={() =>
+            Alert.alert("For real?", "", [
+              { text: "No", style: "cancel" },
+              { text: "Yes", style: "destructive", onPress: () => supabase.auth.signOut() },
+            ])
+          }
+        >
+          <Text style={styles.signOutText}>Sign out</Text>
+        </Pressable>
       </ScrollView>
     </SafeAreaView>
   );
@@ -403,4 +466,24 @@ const styles = StyleSheet.create({
   reviewDate: { fontSize: 11, color: "#9e9e9e" },
   reviewComment: { fontSize: 13, color: "#424242", lineHeight: 20 },
   emptyText: { fontSize: 13, color: "#bdbdbd", textAlign: "center", marginTop: 8 },
+  friendCard: {
+    flexDirection: "row", alignItems: "center",
+    backgroundColor: "#fff", borderRadius: 12, borderWidth: 1,
+    borderColor: "#e0e0e0", padding: 12, marginBottom: 10,
+  },
+  friendAvatar: { width: 44, height: 44, borderRadius: 22, marginRight: 12 },
+  friendAvatarPlaceholder: {
+    width: 44, height: 44, borderRadius: 22, backgroundColor: "#212121",
+    alignItems: "center", justifyContent: "center", marginRight: 12,
+  },
+  friendAvatarText: { color: "#fff", fontWeight: "700", fontSize: 18 },
+  friendInfo: { flex: 1 },
+  friendUsername: { fontSize: 15, fontWeight: "600", color: "#212121", marginBottom: 2 },
+  friendSports: { fontSize: 12, color: "#9e9e9e" },
+  signOutBtn: {
+    marginTop: 32, paddingVertical: 14, borderRadius: 12,
+    borderWidth: 1, borderColor: "#e0e0e0", alignItems: "center",
+    backgroundColor: "#fff",
+  },
+  signOutText: { fontSize: 14, fontWeight: "600", color: "#e53935" },
 });
