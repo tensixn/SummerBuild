@@ -3,11 +3,12 @@ import { View, Text, Pressable, StyleSheet, SafeAreaView } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import HomeScreen from "./screens/HomeScreen";
 import MapScreen from "./screens/MapScreen";
+import ProfileScreen from "./screens/ProfileScreen";
 import LoginScreen from "./screens/LoginScreen";
 import SignupScreen from "./screens/SignupScreen";
 import { supabase } from "./lib/supabase";
 
-type Tab = "games" | "map";
+type Tab = "games" | "map" | "profile";
 type AuthScreen = "login" | "signup";
 
 export default function App() {
@@ -47,7 +48,7 @@ export default function App() {
     <View style={styles.root}>
       <StatusBar style="dark" />
       <View style={styles.content}>
-        {tab === "games" ? <HomeScreen /> : <MapScreen />}
+        {tab === "games" ? <HomeScreen /> : tab === "map" ? <MapScreen /> : <ProfileScreen />}
       </View>
       <SafeAreaView style={styles.navSafe}>
         <View style={styles.nav}>
@@ -58,6 +59,10 @@ export default function App() {
           <Pressable style={styles.navItem} onPress={() => setTab("map")}>
             <Text style={[styles.navIcon, tab === "map" && styles.navIconActive]}>🗺</Text>
             <Text style={[styles.navLabel, tab === "map" && styles.navLabelActive]}>Map</Text>
+          </Pressable>
+          <Pressable style={styles.navItem} onPress={() => setTab("profile")}>
+            <Text style={[styles.navIcon, tab === "profile" && styles.navIconActive]}>👤</Text>
+            <Text style={[styles.navLabel, tab === "profile" && styles.navLabelActive]}>Profile</Text>
           </Pressable>
           <Pressable style={styles.navItem} onPress={() => supabase.auth.signOut()}>
             <Text style={styles.navIcon}>🚪</Text>
