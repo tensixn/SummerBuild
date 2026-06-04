@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import {
   View, Text, FlatList, Pressable, ActivityIndicator,
-  Alert, StyleSheet, SafeAreaView, Modal, ScrollView, Image, TextInput,
+  Alert, StyleSheet, SafeAreaView, Modal, ScrollView, Image, TextInput, RefreshControl,
 } from "react-native";
 import { supabase } from "../lib/supabase";
 import { Game, Sport, SPORTS } from "../lib/types";
@@ -33,6 +33,7 @@ type Review = {
 type Notification = {
   id: string;
   message: string;
+  is_read: boolean;
   created_at: string;
 };
 
@@ -41,6 +42,7 @@ export default function HomeScreen() {
   const [joinedIds, setJoinedIds] = useState<Set<string>>(new Set());
   const [upcomingGames, setUpcomingGames] = useState<Game[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState<Sport>("All");
   const [modalVisible, setModalVisible] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
@@ -54,7 +56,9 @@ export default function HomeScreen() {
   const [profileInDetail, setProfileInDetail] = useState<Profile | null>(null);
   const [profileInDetailReviews, setProfileInDetailReviews] = useState<Review[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [allNotifications, setAllNotifications] = useState<Notification[]>([]);
   const [showNotifModal, setShowNotifModal] = useState(false);
+  const [showMailbox, setShowMailbox] = useState(false);
   const [showUpcoming, setShowUpcoming] = useState(false);
 
   const fetchGames = useCallback(async () => {
@@ -76,27 +80,28 @@ export default function HomeScreen() {
   const fetchUpcoming = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
-    const { data: participations } = await supabase
-      .from("game_participants").select("game_id").eq("user_name", user.email);
+    const { data: participations } = await supabase.from("game_participants").select("game_id").eq("user_name", user.email);
     if (!participations || participations.length === 0) { setUpcomingGames([]); return; }
     const ids = participations.map((p) => p.game_id);
-    const { data: games } = await supabase
-      .from("games_with_counts").select("*").in("id", ids).eq("status", "open")
-      .gte("start_time", new Date().toISOString()).order("start_time", { ascending: true });
+    const { data: games } = await supabase.from("games_with_counts").select("*").in("id", ids).eq("status", "open").gte("start_time", new Date().toISOString()).order("start_time", { ascending: true });
     if (games) setUpcomingGames(games);
   }, []);
 
   const fetchNotifications = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
-    const { data } = await supabase
-      .from("notifications").select("*")
-      .eq("user_email", user.email).eq("is_read", false)
-      .order("created_at", { ascending: false });
+    const { data } = await supabase.from("notifications").select("*").eq("user_email", user.email).eq("is_read", false).order("created_at", { ascending: false });
     if (data && data.length > 0) {
       setNotifications(data);
       setShowNotifModal(true);
     }
+  }, []);
+
+  const fetchAllNotifications = useCallback(async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { data } = await supabase.from("notifications").select("*").eq("user_email", user.email).order("created_at", { ascending: false });
+    if (data) setAllNotifications(data);
   }, []);
 
   async function markNotificationsRead() {
@@ -104,6 +109,13 @@ export default function HomeScreen() {
     await supabase.from("notifications").update({ is_read: true }).in("id", ids);
     setNotifications([]);
     setShowNotifModal(false);
+    fetchAllNotifications();
+  }
+
+  async function onRefresh() {
+    setRefreshing(true);
+    await Promise.all([fetchGames(), fetchJoined(), fetchUpcoming(), fetchNotifications(), fetchAllNotifications()]);
+    setRefreshing(false);
   }
 
   useEffect(() => {
@@ -114,20 +126,20 @@ export default function HomeScreen() {
     fetchJoined();
     fetchUpcoming();
     fetchNotifications();
+    fetchAllNotifications();
 
     const channel = supabase.channel("games-realtime")
       .on("postgres_changes", { event: "*", schema: "public", table: "games" }, () => { fetchGames(); fetchUpcoming(); })
       .on("postgres_changes", { event: "*", schema: "public", table: "game_participants" }, () => { fetchGames(); fetchJoined(); fetchUpcoming(); })
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications" }, fetchNotifications)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications" }, () => { fetchNotifications(); fetchAllNotifications(); })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [fetchGames, fetchJoined, fetchUpcoming, fetchNotifications]);
+  }, [fetchGames, fetchJoined, fetchUpcoming, fetchNotifications, fetchAllNotifications]);
 
   async function openGame(game: Game) {
     setSelectedGame(game);
     setLoadingParticipants(true);
-    const { data: rows } = await supabase
-      .from("game_participants").select("user_name, user_id").eq("game_id", game.id);
+    const { data: rows } = await supabase.from("game_participants").select("user_name, user_id").eq("game_id", game.id);
     if (!rows || rows.length === 0) { setParticipants([]); setLoadingParticipants(false); return; }
     const userIds = rows.map((r) => r.user_id).filter(Boolean);
     let profileMap: Record<string, { username: string; avatar_url: string | null; sports_interests: string[] }> = {};
@@ -216,14 +228,14 @@ export default function HomeScreen() {
         <View style={styles.header}>
           <Text style={styles.appName}>NTU Sports</Text>
           <View style={styles.headerRight}>
-            {notifications.length > 0 && (
-              <Pressable style={styles.notifBtn} onPress={() => setShowNotifModal(true)}>
-                <Text style={styles.notifIcon}>🔔</Text>
+            <Pressable style={styles.notifBtn} onPress={() => { fetchAllNotifications(); setShowMailbox(true); }}>
+              <Text style={styles.notifIcon}>📬</Text>
+              {notifications.length > 0 && (
                 <View style={styles.notifBadge}>
                   <Text style={styles.notifBadgeText}>{notifications.length}</Text>
                 </View>
-              </Pressable>
-            )}
+              )}
+            </Pressable>
             <View style={styles.livePill}>
               <View style={styles.liveDot} />
               <Text style={styles.liveText}>live</Text>
@@ -236,6 +248,7 @@ export default function HomeScreen() {
           data={filtered}
           keyExtractor={(item) => item.id}
           showsVerticalScrollIndicator={false}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
           ListHeaderComponent={
             <>
               <FlatList
@@ -251,7 +264,6 @@ export default function HomeScreen() {
                 <Text style={styles.createBtnText}>+ Create a game</Text>
               </Pressable>
 
-              {/* Upcoming Games Section */}
               {upcomingGames.length > 0 && (
                 <View style={styles.upcomingSection}>
                   <Pressable style={styles.upcomingHeader} onPress={() => setShowUpcoming(!showUpcoming)}>
@@ -302,11 +314,11 @@ export default function HomeScreen() {
 
       <CreateGameModal visible={modalVisible} onClose={() => setModalVisible(false)} onCreated={() => { fetchGames(); fetchUpcoming(); }} />
 
-      {/* Notification Modal */}
+      {/* Popup for new notifications */}
       <Modal visible={showNotifModal} animationType="fade" transparent>
         <View style={styles.notifOverlay}>
           <View style={styles.notifModal}>
-            <Text style={styles.notifModalTitle}>🔔 Notifications</Text>
+            <Text style={styles.notifModalTitle}>🔔 New Notifications</Text>
             {notifications.map((n) => (
               <View key={n.id} style={styles.notifItem}>
                 <Text style={styles.notifMessage}>{n.message}</Text>
@@ -318,6 +330,45 @@ export default function HomeScreen() {
             </Pressable>
           </View>
         </View>
+      </Modal>
+
+      {/* Mailbox Modal */}
+      <Modal visible={showMailbox} animationType="slide" presentationStyle="pageSheet">
+        <SafeAreaView style={styles.modalSafe}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>📬 Mailbox</Text>
+            <Pressable onPress={() => setShowMailbox(false)}>
+              <Text style={styles.modalClose}>✕</Text>
+            </Pressable>
+          </View>
+          <FlatList
+            data={allNotifications}
+            keyExtractor={(n) => n.id}
+            contentContainerStyle={styles.modalContent}
+            ListEmptyComponent={<Text style={styles.emptyText}>No notifications yet.</Text>}
+            refreshControl={
+              <RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await fetchAllNotifications(); setRefreshing(false); }} />
+            }
+            renderItem={({ item: n }) => (
+              <View style={[styles.mailboxItem, n.is_read && styles.mailboxItemRead]}>
+                <View style={styles.mailboxItemRow}>
+                  <Text style={styles.mailboxDot}>{n.is_read ? "○" : "●"}</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.notifMessage, n.is_read && styles.notifMessageRead]}>{n.message}</Text>
+                    <Text style={styles.notifTime}>{formatDate(n.created_at)}</Text>
+                  </View>
+                </View>
+              </View>
+            )}
+          />
+          {allNotifications.some((n) => !n.is_read) && (
+            <View style={styles.mailboxFooter}>
+              <Pressable style={styles.markAllReadBtn} onPress={async () => { await markNotificationsRead(); fetchAllNotifications(); }}>
+                <Text style={styles.markAllReadText}>Mark all as read</Text>
+              </Pressable>
+            </View>
+          )}
+        </SafeAreaView>
       </Modal>
 
       {/* Game Detail Modal */}
@@ -526,9 +577,17 @@ const styles = StyleSheet.create({
   notifModalTitle: { fontSize: 18, fontWeight: "700", color: "#212121", marginBottom: 16 },
   notifItem: { backgroundColor: "#fff3e0", borderRadius: 10, padding: 12, marginBottom: 10, borderWidth: 1, borderColor: "#ffe0b2" },
   notifMessage: { fontSize: 13, color: "#212121", lineHeight: 20, marginBottom: 4 },
+  notifMessageRead: { color: "#9e9e9e" },
   notifTime: { fontSize: 11, color: "#9e9e9e" },
   notifDismissBtn: { backgroundColor: "#212121", borderRadius: 10, padding: 14, alignItems: "center", marginTop: 8 },
   notifDismissText: { color: "#fff", fontWeight: "600", fontSize: 14 },
+  mailboxItem: { backgroundColor: "#fff3e0", borderRadius: 10, padding: 12, marginBottom: 10, borderWidth: 1, borderColor: "#ffe0b2" },
+  mailboxItemRead: { backgroundColor: "#fafafa", borderColor: "#f0f0f0" },
+  mailboxItemRow: { flexDirection: "row", gap: 10, alignItems: "flex-start" },
+  mailboxDot: { fontSize: 12, color: "#e53935", marginTop: 2 },
+  mailboxFooter: { padding: 20, borderTopWidth: 1, borderTopColor: "#f0f0f0" },
+  markAllReadBtn: { backgroundColor: "#212121", borderRadius: 10, padding: 14, alignItems: "center" },
+  markAllReadText: { color: "#fff", fontWeight: "600", fontSize: 14 },
   modalSafe: { flex: 1, backgroundColor: "#fafafa" },
   modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 20, borderBottomWidth: 1, borderBottomColor: "#f0f0f0" },
   modalTitle: { fontSize: 17, fontWeight: "700", color: "#212121", flex: 1, marginRight: 8 },

@@ -53,6 +53,14 @@ export default function ProfileScreen() {
   const [createdGames, setCreatedGames] = useState<Game[]>([]);
   const [activeModal, setActiveModal] = useState<ModalType>(null);
 
+  // Friend profile view state
+  const [selectedFriend, setSelectedFriend] = useState<Profile | null>(null);
+  const [friendReviews, setFriendReviews] = useState<Review[]>([]);
+  const [friendUpcomingGames, setFriendUpcomingGames] = useState<Game[]>([]);
+  const [loadingFriend, setLoadingFriend] = useState(false);
+  const [friendReviewText, setFriendReviewText] = useState("");
+  const [submittingFriendReview, setSubmittingFriendReview] = useState(false);
+
   const fetchProfile = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
@@ -64,12 +72,7 @@ export default function ProfileScreen() {
       setSelectedSports(data.sports_interests ?? []);
       setAvatarUri(data.avatar_url ?? null);
     } else {
-      const newProfile = {
-        id: user.id,
-        username: user.email?.split("@")[0] ?? "Player",
-        sports_interests: [],
-        avatar_url: null,
-      };
+      const newProfile = { id: user.id, username: user.email?.split("@")[0] ?? "Player", sports_interests: [], avatar_url: null };
       await supabase.from("profiles").insert(newProfile);
       setProfile({ ...newProfile });
       setUsername(newProfile.username);
@@ -87,40 +90,20 @@ export default function ProfileScreen() {
   const fetchStats = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
-
-    const { data: participations } = await supabase
-      .from("game_participants")
-      .select("game_id")
-      .eq("user_name", user.email);
-
+    const { data: participations } = await supabase.from("game_participants").select("game_id").eq("user_name", user.email);
     if (participations && participations.length > 0) {
       const gameIds = participations.map((p) => p.game_id);
-      const { data: games } = await supabase
-        .from("games_with_counts")
-        .select("*")
-        .in("id", gameIds)
-        .order("start_time", { ascending: false });
+      const { data: games } = await supabase.from("games_with_counts").select("*").in("id", gameIds).order("start_time", { ascending: false });
       if (games) { setJoinedGames(games); setGamesJoined(games.length); }
-    } else {
-      setGamesJoined(0);
-    }
-
-    const { data: created } = await supabase
-      .from("games_with_counts")
-      .select("*")
-      .eq("created_by", user.id)
-      .order("start_time", { ascending: false });
+    } else { setGamesJoined(0); }
+    const { data: created } = await supabase.from("games_with_counts").select("*").eq("created_by", user.id).order("start_time", { ascending: false });
     if (created) { setCreatedGames(created); setGamesCreated(created.length); }
   }, []);
 
   const fetchFriends = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
-    const { data: rows } = await supabase
-      .from("friends")
-      .select("requester_id, receiver_id")
-      .eq("status", "accepted")
-      .or(`requester_id.eq.${user.id},receiver_id.eq.${user.id}`);
+    const { data: rows } = await supabase.from("friends").select("requester_id, receiver_id").eq("status", "accepted").or(`requester_id.eq.${user.id},receiver_id.eq.${user.id}`);
     if (!rows || rows.length === 0) { setFriends([]); return; }
     const ids = rows.map((r) => r.requester_id === user.id ? r.receiver_id : r.requester_id);
     const { data: profiles } = await supabase.from("profiles").select("id, username, avatar_url, sports_interests").in("id", ids);
@@ -133,6 +116,37 @@ export default function ProfileScreen() {
     fetchStats();
     fetchFriends();
   }, [fetchProfile, fetchReviews, fetchStats, fetchFriends]);
+
+  async function openFriendProfile(friend: Profile) {
+    setLoadingFriend(true);
+    setSelectedFriend(friend);
+
+    const { data: reviews } = await supabase.from("reviews").select("*").eq("profile_id", friend.id).order("created_at", { ascending: false });
+    if (reviews) setFriendReviews(reviews);
+
+    const { data: participations } = await supabase.from("game_participants").select("game_id").eq("user_name", friend.username);
+    if (participations && participations.length > 0) {
+      const ids = participations.map((p) => p.game_id);
+      const { data: games } = await supabase.from("games_with_counts").select("*").in("id", ids).eq("status", "open").gte("start_time", new Date().toISOString()).order("start_time", { ascending: true });
+      if (games) setFriendUpcomingGames(games);
+    } else {
+      setFriendUpcomingGames([]);
+    }
+    setLoadingFriend(false);
+  }
+
+  async function submitFriendReview() {
+    if (!friendReviewText.trim() || !selectedFriend) return;
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    setSubmittingFriendReview(true);
+    const { error } = await supabase.from("reviews").insert({ profile_id: selectedFriend.id, reviewer_name: user.email?.split("@")[0] ?? "Anonymous", comment: friendReviewText.trim() });
+    setSubmittingFriendReview(false);
+    if (error) { Alert.alert("Error", error.message); return; }
+    setFriendReviewText("");
+    const { data } = await supabase.from("reviews").select("*").eq("profile_id", selectedFriend.id).order("created_at", { ascending: false });
+    if (data) setFriendReviews(data);
+  }
 
   async function pickImage() {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -194,6 +208,10 @@ export default function ProfileScreen() {
     return m ? `in ${h}h ${m}m` : `in ${h}h`;
   }
 
+  function formatDate(isoString: string) {
+    return new Date(isoString).toLocaleDateString("en-SG", { weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  }
+
   if (loading) return <ActivityIndicator style={{ flex: 1 }} />;
 
   const isOwnProfile = currentUserId === profile?.id;
@@ -215,7 +233,6 @@ export default function ProfileScreen() {
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
 
-        {/* Header */}
         <View style={styles.header}>
           <Pressable onPress={editing ? pickImage : undefined} style={styles.avatarWrapper}>
             {avatarUri ? (
@@ -243,31 +260,28 @@ export default function ProfileScreen() {
           )}
         </View>
 
-        {/* Stats - clickable */}
-        
         <View style={styles.statsRow}>
-            <Pressable style={styles.statBox} onPress={() => setActiveModal("joined")}>
-                <Text style={styles.statNum}>{gamesJoined}</Text>
-                <Text style={styles.statLabel}>Joined</Text>
-            </Pressable>
-        <View style={styles.statDivider} />
-            <Pressable style={styles.statBox} onPress={() => setActiveModal("created")}>
-                <Text style={styles.statNum}>{gamesCreated}</Text>
-                <Text style={styles.statLabel}>Created</Text>
-            </Pressable>
-        <View style={styles.statDivider} />
-            <View style={styles.statBox}>
-                <Text style={styles.statNum}>{reviews.length}</Text>
-                <Text style={styles.statLabel}>Reviews</Text>
-            </View>
-            <View style={styles.statDivider} />
-        <Pressable style={styles.statBox} onPress={() => setActiveModal("friends")}>
-    <Text style={styles.statNum}>{friends.length}</Text>
-    <Text style={styles.statLabel}>Friends</Text>
-  </Pressable>
-</View>
+          <Pressable style={styles.statBox} onPress={() => setActiveModal("joined")}>
+            <Text style={styles.statNum}>{gamesJoined}</Text>
+            <Text style={styles.statLabel}>Joined</Text>
+          </Pressable>
+          <View style={styles.statDivider} />
+          <Pressable style={styles.statBox} onPress={() => setActiveModal("created")}>
+            <Text style={styles.statNum}>{gamesCreated}</Text>
+            <Text style={styles.statLabel}>Created</Text>
+          </Pressable>
+          <View style={styles.statDivider} />
+          <View style={styles.statBox}>
+            <Text style={styles.statNum}>{reviews.length}</Text>
+            <Text style={styles.statLabel}>Reviews</Text>
+          </View>
+          <View style={styles.statDivider} />
+          <Pressable style={styles.statBox} onPress={() => setActiveModal("friends")}>
+            <Text style={styles.statNum}>{friends.length}</Text>
+            <Text style={styles.statLabel}>Friends</Text>
+          </Pressable>
+        </View>
 
-        {/* Sports Interests */}
         <Text style={styles.sectionLabel}>Sports Interests</Text>
         {editing ? (
           <>
@@ -299,7 +313,6 @@ export default function ProfileScreen() {
           </View>
         )}
 
-        {/* Reviews */}
         {!isOwnProfile && (
           <>
             <Text style={styles.sectionLabel}>Leave a Review</Text>
@@ -327,14 +340,13 @@ export default function ProfileScreen() {
           ))
         )}
 
-        {/* Sign Out */}
         <Pressable style={styles.signOutBtn} onPress={() => Alert.alert("For real?", "", [{ text: "No", style: "cancel" }, { text: "Yes", style: "destructive", onPress: () => supabase.auth.signOut() }])}>
           <Text style={styles.signOutText}>Sign out</Text>
         </Pressable>
       </ScrollView>
 
-      {/* Modal */}
-      <Modal visible={activeModal !== null} animationType="slide" presentationStyle="pageSheet">
+      {/* Games / Friends Modal */}
+      <Modal visible={activeModal !== null && selectedFriend === null} animationType="slide" presentationStyle="pageSheet">
         <SafeAreaView style={styles.modalSafe}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>
@@ -346,23 +358,15 @@ export default function ProfileScreen() {
           </View>
 
           {activeModal === "joined" && (
-            <FlatList
-              data={joinedGames}
-              keyExtractor={(g) => g.id}
-              contentContainerStyle={styles.modalList}
+            <FlatList data={joinedGames} keyExtractor={(g) => g.id} contentContainerStyle={styles.modalList}
               ListEmptyComponent={<Text style={styles.emptyText}>No games joined yet.</Text>}
-              renderItem={({ item }) => renderGameCard(item)}
-            />
+              renderItem={({ item }) => renderGameCard(item)} />
           )}
 
           {activeModal === "created" && (
-            <FlatList
-              data={createdGames}
-              keyExtractor={(g) => g.id}
-              contentContainerStyle={styles.modalList}
+            <FlatList data={createdGames} keyExtractor={(g) => g.id} contentContainerStyle={styles.modalList}
               ListEmptyComponent={<Text style={styles.emptyText}>No games created yet.</Text>}
-              renderItem={({ item }) => renderGameCard(item)}
-            />
+              renderItem={({ item }) => renderGameCard(item)} />
           )}
 
           {activeModal === "friends" && (
@@ -372,7 +376,7 @@ export default function ProfileScreen() {
               contentContainerStyle={styles.modalList}
               ListEmptyComponent={<Text style={styles.emptyText}>No friends yet. Find players in the Search tab!</Text>}
               renderItem={({ item: f }) => (
-                <View style={styles.friendCard}>
+                <Pressable style={styles.friendCard} onPress={() => openFriendProfile(f)}>
                   {f.avatar_url ? (
                     <Image source={{ uri: f.avatar_url }} style={styles.friendAvatar} />
                   ) : (
@@ -386,9 +390,94 @@ export default function ProfileScreen() {
                       <Text style={styles.friendSports} numberOfLines={1}>{f.sports_interests.join(" · ")}</Text>
                     )}
                   </View>
-                </View>
+                  <Text style={styles.friendArrow}>›</Text>
+                </Pressable>
               )}
             />
+          )}
+        </SafeAreaView>
+      </Modal>
+
+      {/* Friend Profile Modal */}
+      <Modal visible={selectedFriend !== null} animationType="slide" presentationStyle="pageSheet">
+        <SafeAreaView style={styles.modalSafe}>
+          <View style={styles.modalHeader}>
+            <Pressable onPress={() => { setSelectedFriend(null); setFriendReviews([]); setFriendUpcomingGames([]); setFriendReviewText(""); }} style={{ flex: 1 }}>
+              <Text style={styles.backBtnText}>‹ Friends</Text>
+            </Pressable>
+            <Pressable onPress={() => { setSelectedFriend(null); setActiveModal(null); setFriendReviews([]); setFriendUpcomingGames([]); setFriendReviewText(""); }}>
+              <Text style={styles.modalClose}>✕</Text>
+            </Pressable>
+          </View>
+
+          {loadingFriend ? (
+            <ActivityIndicator style={{ flex: 1 }} />
+          ) : (
+            <ScrollView contentContainerStyle={styles.modalList}>
+              <View style={styles.friendProfileHeader}>
+                {selectedFriend?.avatar_url ? (
+                  <Image source={{ uri: selectedFriend.avatar_url }} style={styles.friendProfileAvatar} />
+                ) : (
+                  <View style={styles.friendProfileAvatarPlaceholder}>
+                    <Text style={styles.friendProfileAvatarText}>{(selectedFriend?.username ?? "?")[0].toUpperCase()}</Text>
+                  </View>
+                )}
+                <Text style={styles.friendProfileUsername}>{selectedFriend?.username}</Text>
+              </View>
+
+              <Text style={styles.sectionLabel}>Sports Interests</Text>
+              <View style={styles.sportsRow}>
+                {(selectedFriend?.sports_interests ?? []).length > 0 ? (
+                  selectedFriend?.sports_interests.map((sport) => (
+                    <View key={sport} style={styles.sportChipActive}>
+                      <Text style={styles.sportChipTextActive}>{sport}</Text>
+                    </View>
+                  ))
+                ) : (
+                  <Text style={styles.noSportsText}>No sports interests listed.</Text>
+                )}
+              </View>
+
+              <Text style={styles.sectionLabel}>Upcoming Games ({friendUpcomingGames.length})</Text>
+              {friendUpcomingGames.length === 0 ? (
+                <Text style={styles.emptyText}>No upcoming games.</Text>
+              ) : (
+                friendUpcomingGames.map((game) => (
+                  <View key={game.id} style={styles.gameCard}>
+                    <View style={styles.gameCardTop}>
+                      <Text style={styles.gameCardSport}>{game.sport}</Text>
+                      <Text style={styles.gameCardTime}>{formatTime(game.start_time)}</Text>
+                    </View>
+                    <Text style={styles.gameCardLocation}>{game.location}</Text>
+                    <Text style={styles.gameCardDate}>{formatDate(game.start_time)}</Text>
+                    <Text style={styles.gameCardMeta}>{game.current_players}/{game.max_players} players · {game.skill_level}</Text>
+                  </View>
+                ))
+              )}
+
+              <Text style={styles.sectionLabel}>Leave a Review</Text>
+              <View style={styles.reviewInputRow}>
+                <TextInput style={styles.reviewInput} placeholder="Write a comment..." value={friendReviewText} onChangeText={setFriendReviewText} multiline />
+                <Pressable style={[styles.reviewSubmitBtn, !friendReviewText.trim() && styles.reviewSubmitBtnDisabled]} onPress={submitFriendReview} disabled={submittingFriendReview || !friendReviewText.trim()}>
+                  <Text style={styles.reviewSubmitText}>Post</Text>
+                </Pressable>
+              </View>
+
+              <Text style={styles.sectionLabel}>Reviews ({friendReviews.length})</Text>
+              {friendReviews.length === 0 ? (
+                <Text style={styles.emptyText}>No reviews yet.</Text>
+              ) : (
+                friendReviews.map((r) => (
+                  <View key={r.id} style={styles.reviewCard}>
+                    <View style={styles.reviewHeader}>
+                      <Text style={styles.reviewerName}>{r.reviewer_name}</Text>
+                      <Text style={styles.reviewDate}>{new Date(r.created_at).toLocaleDateString()}</Text>
+                    </View>
+                    <Text style={styles.reviewComment}>{r.comment}</Text>
+                  </View>
+                ))
+              )}
+            </ScrollView>
           )}
         </SafeAreaView>
       </Modal>
@@ -441,6 +530,13 @@ const styles = StyleSheet.create({
   friendInfo: { flex: 1 },
   friendUsername: { fontSize: 15, fontWeight: "600", color: "#212121", marginBottom: 2 },
   friendSports: { fontSize: 12, color: "#9e9e9e" },
+  friendArrow: { fontSize: 20, color: "#bdbdbd" },
+  friendProfileHeader: { alignItems: "center", marginBottom: 24, paddingTop: 8 },
+  friendProfileAvatar: { width: 80, height: 80, borderRadius: 40, marginBottom: 12 },
+  friendProfileAvatarPlaceholder: { width: 80, height: 80, borderRadius: 40, backgroundColor: "#212121", alignItems: "center", justifyContent: "center", marginBottom: 12 },
+  friendProfileAvatarText: { fontSize: 32, fontWeight: "700", color: "#fff" },
+  friendProfileUsername: { fontSize: 20, fontWeight: "700", color: "#212121" },
+  backBtnText: { fontSize: 16, color: "#212121", fontWeight: "500" },
   signOutBtn: { marginTop: 32, paddingVertical: 14, borderRadius: 12, borderWidth: 1, borderColor: "#e0e0e0", alignItems: "center", backgroundColor: "#fff" },
   signOutText: { fontSize: 14, fontWeight: "600", color: "#e53935" },
   modalSafe: { flex: 1, backgroundColor: "#fafafa" },
@@ -452,6 +548,7 @@ const styles = StyleSheet.create({
   gameCardTop: { flexDirection: "row", justifyContent: "space-between", marginBottom: 4 },
   gameCardSport: { fontSize: 14, fontWeight: "600", color: "#212121" },
   gameCardTime: { fontSize: 12, color: "#9e9e9e" },
-  gameCardLocation: { fontSize: 14, color: "#424242", marginBottom: 4 },
+  gameCardLocation: { fontSize: 14, color: "#424242", marginBottom: 2 },
+  gameCardDate: { fontSize: 11, color: "#1565c0", marginBottom: 4 },
   gameCardMeta: { fontSize: 12, color: "#9e9e9e" },
 });
