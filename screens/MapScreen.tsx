@@ -1,23 +1,19 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import {
-  View,
-  Text,
-  StyleSheet,
-  Alert,
-  Pressable,
-  ActivityIndicator,
-  ScrollView,
-  Animated,
-  Dimensions,
+  View, Text, StyleSheet, Alert, Pressable,
+  ActivityIndicator, ScrollView, Animated, Dimensions, FlatList,
 } from "react-native";
 import MapView, { Marker, Circle, PROVIDER_DEFAULT } from "react-native-maps";
 import * as Location from "expo-location";
 import { supabase } from "../lib/supabase";
-import { Game } from "../lib/types";
+import { Game, DEMO_USER } from "../lib/types";
 import { Court, NTU_COURTS, NTU_CENTER, findCourt } from "../lib/courts";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
-const SHEET_HEIGHT = SCREEN_HEIGHT * 0.42;
+const PEEK_HEIGHT = 120;
+const FULL_HEIGHT = SCREEN_HEIGHT * 0.52;
 
 const SPORT_COLORS: Record<string, string> = {
   Badminton: "#2e7d32",
@@ -27,10 +23,17 @@ const SPORT_COLORS: Record<string, string> = {
   Frisbee: "#6a1b9a",
 };
 
-function distanceMeters(
-  lat1: number, lon1: number,
-  lat2: number, lon2: number
-): number {
+const SPORT_EMOJI: Record<string, string> = {
+  Badminton: "🏸",
+  Basketball: "🏀",
+  Football: "⚽",
+  Volleyball: "🏐",
+  Frisbee: "🥏",
+};
+
+const ALL_SPORTS = ["All", "Badminton", "Basketball", "Football", "Volleyball", "Frisbee"];
+
+function distanceMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371000;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
   const dLon = ((lon2 - lon1) * Math.PI) / 180;
@@ -60,164 +63,149 @@ function formatTime(isoString: string): string {
 type UserLocation = { latitude: number; longitude: number } | null;
 
 export default function MapScreen() {
+  const insets = useSafeAreaInsets();
   const mapRef = useRef<MapView>(null);
-  const sheetAnim = useRef(new Animated.Value(SHEET_HEIGHT)).current;
+  const sheetAnim = useRef(new Animated.Value(0)).current; // 0 = peek, 1 = full
 
   const [userLocation, setUserLocation] = useState<UserLocation>(null);
   const [games, setGames] = useState<Game[]>([]);
   const [joinedIds, setJoinedIds] = useState<Set<string>>(new Set());
   const [selectedCourt, setSelectedCourt] = useState<Court | null>(null);
   const [courtGames, setCourtGames] = useState<Game[]>([]);
-  const [sheetOpen, setSheetOpen] = useState(false);
+  const [sheetFull, setSheetFull] = useState(false);
   const [loadingGames, setLoadingGames] = useState(true);
+  const [sportFilter, setSportFilter] = useState("All");
 
   useEffect(() => {
     (async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== "granted") {
-        Alert.alert(
-          "Location needed",
-          "Enable location to see how far you are from each court."
-        );
+        Alert.alert("Location needed", "Enable location to see how far you are from each court.");
         return;
       }
       const loc = await Location.getCurrentPositionAsync({});
-      setUserLocation({
-        latitude: loc.coords.latitude,
-        longitude: loc.coords.longitude,
-      });
+      setUserLocation({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
     })();
   }, []);
 
   const fetchGames = useCallback(async () => {
     const { data } = await supabase
-      .from("games_with_counts")
-      .select("*")
-      .eq("status", "open")
-      .order("start_time", { ascending: true });
+      .from("games_with_counts").select("*").eq("status", "open").order("start_time", { ascending: true });
     if (data) setGames(data);
     setLoadingGames(false);
   }, []);
 
   const fetchJoined = useCallback(async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
     const { data } = await supabase
-      .from("game_participants")
-      .select("game_id")
-      .eq("user_name", user.email);
+      .from("game_participants").select("game_id").eq("user_name", DEMO_USER);
     if (data) setJoinedIds(new Set(data.map((r) => r.game_id)));
   }, []);
 
   useEffect(() => {
     fetchGames();
     fetchJoined();
-    const channel = supabase
-      .channel("map-realtime")
+    const channel = supabase.channel("map-realtime")
       .on("postgres_changes", { event: "*", schema: "public", table: "games" }, fetchGames)
       .on("postgres_changes", { event: "*", schema: "public", table: "game_participants" }, () => {
-        fetchGames();
-        fetchJoined();
+        fetchGames(); fetchJoined();
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [fetchGames, fetchJoined]);
 
+  const filteredGames = sportFilter === "All" ? games : games.filter(g => g.sport === sportFilter);
+
   function openSheet(court: Court) {
-    const cGames = games.filter((g) => {
+    const cGames = filteredGames.filter((g) => {
       const c = findCourt(g.location);
       return c?.id === court.id;
     });
     setSelectedCourt(court);
     setCourtGames(cGames);
-    setSheetOpen(true);
+    expandSheet();
+  }
+
+  function expandSheet() {
+    setSheetFull(true);
     Animated.spring(sheetAnim, {
-      toValue: 0,
-      useNativeDriver: true,
+      toValue: 1,
+      useNativeDriver: false,
       tension: 65,
       friction: 11,
     }).start();
   }
 
-  function closeSheet() {
+  function collapseSheet() {
+    setSheetFull(false);
+    setSelectedCourt(null);
     Animated.timing(sheetAnim, {
-      toValue: SHEET_HEIGHT,
+      toValue: 0,
       duration: 220,
-      useNativeDriver: true,
-    }).start(() => {
-      setSheetOpen(false);
-      setSelectedCourt(null);
-    });
+      useNativeDriver: false,
+    }).start();
   }
+
+  const sheetHeight = sheetAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [PEEK_HEIGHT, FULL_HEIGHT],
+  });
 
   function centerOnUser() {
     if (!userLocation) return;
-    mapRef.current?.animateToRegion(
-      {
-        ...userLocation,
-        latitudeDelta: 0.008,
-        longitudeDelta: 0.008,
-      },
-      500
-    );
+    mapRef.current?.animateToRegion({ ...userLocation, latitudeDelta: 0.008, longitudeDelta: 0.008 }, 500);
   }
 
   async function joinGame(game: Game) {
-    if (game.current_players >= game.max_players) {
-      Alert.alert("Full", "This game is already full.");
-      return;
-    }
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    const { error } = await supabase
-      .from("game_participants")
-      .insert({ game_id: game.id, user_name: user.email });
+    if (game.current_players >= game.max_players) { Alert.alert("Full", "This game is already full."); return; }
+    const { error } = await supabase.from("game_participants").insert({ game_id: game.id, user_name: DEMO_USER });
     if (error) { Alert.alert("Error", error.message); return; }
     setJoinedIds((prev) => new Set(prev).add(game.id));
     fetchGames();
-    setCourtGames((prev) =>
-      prev.map((g) =>
-        g.id === game.id
-          ? { ...g, current_players: g.current_players + 1 }
-          : g
-      )
-    );
+    setCourtGames((prev) => prev.map((g) => g.id === game.id ? { ...g, current_players: g.current_players + 1 } : g));
   }
 
   async function leaveGame(game: Game) {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    const { error } = await supabase
-      .from("game_participants")
-      .delete()
-      .eq("game_id", game.id)
-      .eq("user_name", user.email);
+    const { error } = await supabase.from("game_participants").delete().eq("game_id", game.id).eq("user_name", DEMO_USER);
     if (error) { Alert.alert("Error", error.message); return; }
-    setJoinedIds((prev) => {
-      const next = new Set(prev);
-      next.delete(game.id);
-      return next;
-    });
+    setJoinedIds((prev) => { const next = new Set(prev); next.delete(game.id); return next; });
     fetchGames();
-    setCourtGames((prev) =>
-      prev.map((g) =>
-        g.id === game.id
-          ? { ...g, current_players: g.current_players - 1 }
-          : g
-      )
+    setCourtGames((prev) => prev.map((g) => g.id === game.id ? { ...g, current_players: g.current_players - 1 } : g));
+  }
+
+  function flyToCourt(game: Game) {
+    const court = findCourt(game.location);
+    if (!court) return;
+    mapRef.current?.animateToRegion(
+      { latitude: court.latitude, longitude: court.longitude, latitudeDelta: 0.006, longitudeDelta: 0.006 },
+      400
     );
+    openSheet(court);
   }
 
   function courtsWithGames(): Set<string> {
     const ids = new Set<string>();
-    games.forEach((g) => {
+    filteredGames.forEach((g) => {
       const c = findCourt(g.location);
       if (c) ids.add(c.id);
     });
     return ids;
   }
 
+  // Games sorted by distance for the peek list
+  function allGamesSorted(): Game[] {
+    if (!userLocation) return filteredGames;
+    return [...filteredGames].sort((a, b) => {
+      const ca = findCourt(a.location);
+      const cb = findCourt(b.location);
+      if (!ca || !cb) return 0;
+      const da = distanceMeters(userLocation.latitude, userLocation.longitude, ca.latitude, ca.longitude);
+      const db = distanceMeters(userLocation.latitude, userLocation.longitude, cb.latitude, cb.longitude);
+      return da - db;
+    });
+  }
+
   const activeCourtIds = courtsWithGames();
+  const sortedGames = allGamesSorted();
 
   return (
     <View style={styles.container}>
@@ -231,6 +219,12 @@ export default function MapScreen() {
       >
         {NTU_COURTS.map((court) => {
           const hasGame = activeCourtIds.has(court.id);
+          const courtFilteredGames = filteredGames.filter(g => findCourt(g.location)?.id === court.id);
+          const totalPlayers = courtFilteredGames.reduce((sum, g) => sum + g.current_players, 0);
+          const emoji = courtFilteredGames.length > 0
+            ? SPORT_EMOJI[courtFilteredGames[0].sport] ?? "⚡"
+            : null;
+
           return (
             <Marker
               key={court.id}
@@ -240,9 +234,13 @@ export default function MapScreen() {
             >
               <View style={[styles.markerOuter, hasGame && styles.markerOuterActive]}>
                 <View style={[styles.markerInner, hasGame && styles.markerInnerActive]}>
-                  <Text style={[styles.markerText, hasGame && styles.markerTextActive]}>
-                    {court.shortName.split(" ")[0]}
-                  </Text>
+                  {hasGame ? (
+                    <View style={styles.markerContent}>
+                      <Text style={styles.markerPlayerCount}>{totalPlayers}p</Text>
+                    </View>
+                  ) : (
+                    <Text style={styles.markerText}>{court.shortName.split(" ")[0]}</Text>
+                  )}
                 </View>
               </View>
             </Marker>
@@ -260,138 +258,146 @@ export default function MapScreen() {
         )}
       </MapView>
 
-      <View style={styles.headerOverlay}>
-        <Text style={styles.headerTitle}>NTU Courts</Text>
-        {loadingGames ? (
-          <ActivityIndicator size="small" color="#212121" />
-        ) : (
-          <Text style={styles.headerSub}>
-            {activeCourtIds.size} court{activeCourtIds.size !== 1 ? "s" : ""} with active games
-          </Text>
-        )}
+      {/* Filter pills */}
+      <View style={[styles.filterContainer, { top: insets.top + 8 }]}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
+          {ALL_SPORTS.map((sport) => (
+            <Pressable
+              key={sport}
+              style={[styles.filterPill, sportFilter === sport && styles.filterPillActive]}
+              onPress={() => setSportFilter(sport)}
+            >
+              {sport !== "All" && <Text style={styles.filterEmoji}>{SPORT_EMOJI[sport]}</Text>}
+              <Text style={[styles.filterText, sportFilter === sport && styles.filterTextActive]}>{sport}</Text>
+            </Pressable>
+          ))}
+        </ScrollView>
       </View>
 
-      <View style={styles.legend}>
-        <View style={styles.legendItem}>
-          <View style={[styles.legendDot, { backgroundColor: "#212121" }]} />
-          <Text style={styles.legendText}>Active game</Text>
-        </View>
-        <View style={styles.legendItem}>
-          <View style={[styles.legendDot, { backgroundColor: "#bdbdbd" }]} />
-          <Text style={styles.legendText}>No games</Text>
-        </View>
-      </View>
-
-      <Pressable style={styles.myLocBtn} onPress={centerOnUser}>
+      <Pressable style={[styles.myLocBtn, { top: insets.top + 56 }]} onPress={centerOnUser}>
         <Text style={styles.myLocIcon}>◎</Text>
       </Pressable>
 
-      {sheetOpen && selectedCourt && (
-        <>
-          <Pressable style={styles.sheetBackdrop} onPress={closeSheet} />
-          <Animated.View
-            style={[
-              styles.sheet,
-              { transform: [{ translateY: sheetAnim }] },
-            ]}
-          >
-            <View style={styles.sheetHandle} />
-
-            <View style={styles.sheetHeader}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.sheetTitle}>{selectedCourt.name}</Text>
-                {userLocation && (
-                  <Text style={styles.sheetDist}>
-                    {formatDist(
-                      distanceMeters(
-                        userLocation.latitude,
-                        userLocation.longitude,
-                        selectedCourt.latitude,
-                        selectedCourt.longitude
-                      )
-                    )}
-                  </Text>
-                )}
-                <View style={styles.sportsRow}>
-                  {selectedCourt.sports.map((s) => (
-                    <View
-                      key={s}
-                      style={[styles.sportTag, { backgroundColor: SPORT_COLORS[s] + "22" }]}
-                    >
-                      <Text style={[styles.sportTagText, { color: SPORT_COLORS[s] }]}>{s}</Text>
-                    </View>
-                  ))}
-                </View>
-              </View>
-              <Pressable onPress={closeSheet} style={styles.closeBtn}>
-                <Text style={styles.closeBtnText}>✕</Text>
-              </Pressable>
+      {/* Always-visible bottom sheet */}
+      <Animated.View style={[styles.sheet, { height: sheetHeight }]}>
+        {/* Peek bar — tap to expand */}
+        <Pressable onPress={sheetFull ? collapseSheet : expandSheet}>
+          <View style={styles.sheetHandle} />
+          <View style={styles.peekBar}>
+            <View>
+              <Text style={styles.peekTitle}>
+                {loadingGames ? "Loading..." : `${filteredGames.length} game${filteredGames.length !== 1 ? "s" : ""} nearby`}
+              </Text>
+              <Text style={styles.peekSub}>
+                {activeCourtIds.size} court{activeCourtIds.size !== 1 ? "s" : ""} active
+              </Text>
             </View>
+            <Text style={styles.peekChevron}>{sheetFull ? "▼" : "▲"}</Text>
+          </View>
+        </Pressable>
 
-            <Text style={styles.sheetSectionLabel}>
-              {courtGames.length > 0
-                ? `${courtGames.length} game${courtGames.length !== 1 ? "s" : ""} here`
-                : "No active games here"}
-            </Text>
-
-            <ScrollView style={styles.sheetScroll} showsVerticalScrollIndicator={false}>
-              {courtGames.length === 0 ? (
-                <Text style={styles.noGamesText}>
-                  No games right now.{"\n"}Go to the Games tab to create one.
-                </Text>
-              ) : (
-                courtGames.map((game) => {
-                  const joined = joinedIds.has(game.id);
-                  const full = game.current_players >= game.max_players;
-                  const pct = Math.round((game.current_players / game.max_players) * 100);
-                  const barColor = full ? "#bdbdbd" : pct >= 75 ? "#ff9800" : "#4caf50";
-                  return (
-                    <View key={game.id} style={styles.gameRow}>
-                      <View style={styles.gameRowLeft}>
-                        <Text style={styles.gameRowSport}>{game.sport}</Text>
-                        <Text style={styles.gameRowTime}>{formatTime(game.start_time)}</Text>
-                        <View style={styles.miniBar}>
-                          <View
-                            style={[
-                              styles.miniBarFill,
-                              { width: `${pct}%` as any, backgroundColor: barColor },
-                            ]}
-                          />
+        {/* Full sheet content */}
+        {sheetFull && (
+          <>
+            {selectedCourt ? (
+              // Court detail view
+              <>
+                <View style={styles.sheetHeader}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.sheetTitle}>{selectedCourt.name}</Text>
+                    {userLocation && (
+                      <Text style={styles.sheetDist}>
+                        {formatDist(distanceMeters(userLocation.latitude, userLocation.longitude, selectedCourt.latitude, selectedCourt.longitude))}
+                      </Text>
+                    )}
+                    <View style={styles.sportsRow}>
+                      {selectedCourt.sports.map((s) => (
+                        <View key={s} style={[styles.sportTag, { backgroundColor: SPORT_COLORS[s] + "22" }]}>
+                          <Text style={[styles.sportTagText, { color: SPORT_COLORS[s] }]}>{SPORT_EMOJI[s]} {s}</Text>
                         </View>
-                        <Text style={styles.gameRowSlots}>
-                          {game.current_players} / {game.max_players} players · {game.skill_level}
-                        </Text>
-                      </View>
-                      <View style={styles.gameRowBtns}>
-                        {joined ? (
-                          <>
-                            <View style={styles.joinedBadge}>
-                              <Text style={styles.joinedBadgeText}>Joined</Text>
-                            </View>
-                            <Pressable style={styles.leaveBtn} onPress={() => leaveGame(game)}>
-                              <Text style={styles.leaveBtnText}>Leave</Text>
-                            </Pressable>
-                          </>
-                        ) : (
-                          <Pressable
-                            style={[styles.joinBtn, full && styles.joinBtnDisabled]}
-                            onPress={() => !full && joinGame(game)}
-                            disabled={full}
-                          >
-                            <Text style={[styles.joinBtnText, full && styles.joinBtnTextDisabled]}>
-                              {full ? "Full" : "Join"}
-                            </Text>
-                          </Pressable>
-                        )}
-                      </View>
+                      ))}
                     </View>
-                  );
-                })
-              )}
-            </ScrollView>
-          </Animated.View>
-        </>
-      )}
+                  </View>
+                  <Pressable onPress={collapseSheet} style={styles.closeBtn}>
+                    <Text style={styles.closeBtnText}>✕</Text>
+                  </Pressable>
+                </View>
+                <Text style={styles.sheetSectionLabel}>
+                  {courtGames.length > 0 ? `${courtGames.length} game${courtGames.length !== 1 ? "s" : ""} here` : "No active games here"}
+                </Text>
+                <ScrollView style={styles.sheetScroll} showsVerticalScrollIndicator={false}>
+                  {courtGames.length === 0 ? (
+                    <Text style={styles.noGamesText}>No games right now.{"\n"}Go to the Games tab to create one.</Text>
+                  ) : (
+                    courtGames.map((game) => <GameRow key={game.id} game={game} joined={joinedIds.has(game.id)} onJoin={joinGame} onLeave={leaveGame} />)
+                  )}
+                </ScrollView>
+              </>
+            ) : (
+              // All games list
+              <>
+                <View style={styles.sheetHeader}>
+                  <Text style={styles.sheetTitle}>All Games</Text>
+                  <Pressable onPress={collapseSheet} style={styles.closeBtn}>
+                    <Text style={styles.closeBtnText}>✕</Text>
+                  </Pressable>
+                </View>
+                <Text style={styles.sheetSectionLabel}>Sorted by distance</Text>
+                <ScrollView style={styles.sheetScroll} showsVerticalScrollIndicator={false}>
+                  {sortedGames.length === 0 ? (
+                    <Text style={styles.noGamesText}>No games right now.</Text>
+                  ) : (
+                    sortedGames.map((game) => (
+                      <Pressable key={game.id} onPress={() => flyToCourt(game)}>
+                        <GameRow game={game} joined={joinedIds.has(game.id)} onJoin={joinGame} onLeave={leaveGame} showCourt />
+                      </Pressable>
+                    ))
+                  )}
+                </ScrollView>
+              </>
+            )}
+          </>
+        )}
+      </Animated.View>
+    </View>
+  );
+}
+
+function GameRow({ game, joined, onJoin, onLeave, showCourt }: {
+  game: Game; joined: boolean; onJoin: (g: Game) => void; onLeave: (g: Game) => void; showCourt?: boolean;
+}) {
+  const full = game.current_players >= game.max_players;
+  const pct = Math.round((game.current_players / game.max_players) * 100);
+  const barColor = full ? "#bdbdbd" : pct >= 75 ? "#ff9800" : "#4caf50";
+
+  return (
+    <View style={styles.gameRow}>
+      <View style={styles.gameRowLeft}>
+        <View style={styles.gameRowTitleRow}>
+          <Text style={styles.gameRowEmoji}>{SPORT_EMOJI[game.sport] ?? "⚡"}</Text>
+          <Text style={styles.gameRowSport}>{game.sport}</Text>
+        </View>
+        {showCourt && <Text style={styles.gameRowCourt}>{game.location}</Text>}
+        <Text style={styles.gameRowTime}>{formatTime(game.start_time)}</Text>
+        <View style={styles.miniBar}>
+          <View style={[styles.miniBarFill, { width: `${pct}%` as any, backgroundColor: barColor }]} />
+        </View>
+        <Text style={styles.gameRowSlots}>{game.current_players} / {game.max_players} players · {game.skill_level}</Text>
+      </View>
+      <View style={styles.gameRowBtns}>
+        {joined ? (
+          <>
+            <View style={styles.joinedBadge}><Text style={styles.joinedBadgeText}>Joined</Text></View>
+            <Pressable style={styles.leaveBtn} onPress={() => onLeave(game)}>
+              <Text style={styles.leaveBtnText}>Leave</Text>
+            </Pressable>
+          </>
+        ) : (
+          <Pressable style={[styles.joinBtn, full && styles.joinBtnDisabled]} onPress={() => !full && onJoin(game)} disabled={full}>
+            <Text style={[styles.joinBtnText, full && styles.joinBtnTextDisabled]}>{full ? "Full" : "Join"}</Text>
+          </Pressable>
+        )}
+      </View>
     </View>
   );
 }
@@ -399,48 +405,42 @@ export default function MapScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   map: { flex: 1 },
-  headerOverlay: {
+  filterContainer: {
     position: "absolute",
-    top: 56,
-    left: 16,
-    right: 16,
-    backgroundColor: "#ffffffee",
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 4,
+    left: 0,
+    right: 0,
   },
-  headerTitle: { fontSize: 15, fontWeight: "700", color: "#212121" },
-  headerSub: { fontSize: 12, color: "#757575" },
-  legend: {
-    position: "absolute",
-    top: 116,
-    left: 16,
-    backgroundColor: "#ffffffee",
-    borderRadius: 10,
+  filterRow: {
+    paddingHorizontal: 16,
+    gap: 8,
+  },
+  filterPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
     paddingHorizontal: 12,
-    paddingVertical: 8,
-    gap: 6,
+    paddingVertical: 7,
+    borderRadius: 20,
+    backgroundColor: "#ffffffee",
+    borderWidth: 1,
+    borderColor: "#e0e0e0",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.06,
+    shadowOpacity: 0.08,
     shadowRadius: 4,
     elevation: 2,
   },
-  legendItem: { flexDirection: "row", alignItems: "center", gap: 6 },
-  legendDot: { width: 10, height: 10, borderRadius: 5 },
-  legendText: { fontSize: 11, color: "#616161" },
+  filterPillActive: {
+    backgroundColor: "#212121",
+    borderColor: "#212121",
+  },
+  filterEmoji: { fontSize: 13 },
+  filterText: { fontSize: 13, fontWeight: "500", color: "#424242" },
+  filterTextActive: { color: "#fff", fontWeight: "600" },
   myLocBtn: {
     position: "absolute",
     right: 16,
-    top: 116,
+    top: 72,
     width: 44,
     height: 44,
     borderRadius: 22,
@@ -455,56 +455,26 @@ const styles = StyleSheet.create({
   },
   myLocIcon: { fontSize: 20, color: "#1565c0" },
   markerOuter: {
-    padding: 3,
-    borderRadius: 10,
-    backgroundColor: "#fff",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.15,
-    shadowRadius: 3,
-    elevation: 3,
+    padding: 3, borderRadius: 10, backgroundColor: "#fff",
+    shadowColor: "#000", shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.15, shadowRadius: 3, elevation: 3,
   },
-  markerOuterActive: {
-    backgroundColor: "#212121",
-    shadowOpacity: 0.25,
-    shadowRadius: 6,
-    elevation: 6,
-  },
-  markerInner: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 7,
-    backgroundColor: "#f5f5f5",
-  },
-  markerInnerActive: {
-    backgroundColor: "#212121",
-  },
-  markerText: {
-    fontSize: 10,
-    fontWeight: "700",
-    color: "#424242",
-  },
-  markerTextActive: {
-    color: "#fff",
-  },
-  sheetBackdrop: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-  },
+  markerOuterActive: { backgroundColor: "#212121", shadowOpacity: 0.25, shadowRadius: 6, elevation: 6 },
+  markerInner: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 7, backgroundColor: "#f5f5f5" },
+  markerInnerActive: { backgroundColor: "#212121" },
+  markerContent: { flexDirection: "row", alignItems: "center", gap: 3 },
+  markerEmoji: { fontSize: 10 },
+  markerPlayerCount: { fontSize: 10, fontWeight: "700", color: "#fff" },
+  markerText: { fontSize: 10, fontWeight: "700", color: "#424242" },
+  markerTextActive: { color: "#fff" },
   sheet: {
     position: "absolute",
     bottom: 0,
     left: 0,
     right: 0,
-    height: SHEET_HEIGHT,
     backgroundColor: "#fff",
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    paddingHorizontal: 20,
-    paddingBottom: 32,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 0.1,
@@ -512,155 +482,57 @@ const styles = StyleSheet.create({
     elevation: 16,
   },
   sheetHandle: {
-    width: 36,
-    height: 4,
-    backgroundColor: "#e0e0e0",
-    borderRadius: 2,
-    alignSelf: "center",
-    marginTop: 10,
-    marginBottom: 16,
+    width: 36, height: 4, backgroundColor: "#e0e0e0",
+    borderRadius: 2, alignSelf: "center", marginTop: 10, marginBottom: 8,
   },
+  peekBar: {
+    flexDirection: "row", justifyContent: "space-between",
+    alignItems: "center", paddingHorizontal: 20, paddingBottom: 12,
+  },
+  peekTitle: { fontSize: 15, fontWeight: "700", color: "#212121" },
+  peekSub: { fontSize: 12, color: "#9e9e9e", marginTop: 2 },
+  peekChevron: { fontSize: 12, color: "#bdbdbd" },
   sheetHeader: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    marginBottom: 12,
+    flexDirection: "row", alignItems: "flex-start",
+    paddingHorizontal: 20, marginBottom: 8,
   },
-  sheetTitle: {
-    fontSize: 17,
-    fontWeight: "700",
-    color: "#212121",
-    marginBottom: 2,
-  },
-  sheetDist: {
-    fontSize: 12,
-    color: "#1565c0",
-    marginBottom: 8,
-    fontWeight: "500",
-  },
-  sportsRow: {
-    flexDirection: "row",
-    gap: 6,
-    flexWrap: "wrap",
-  },
-  sportTag: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  sportTagText: {
-    fontSize: 11,
-    fontWeight: "600",
-  },
+  sheetTitle: { fontSize: 17, fontWeight: "700", color: "#212121", marginBottom: 2 },
+  sheetDist: { fontSize: 12, color: "#1565c0", marginBottom: 8, fontWeight: "500" },
+  sportsRow: { flexDirection: "row", gap: 6, flexWrap: "wrap" },
+  sportTag: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
+  sportTagText: { fontSize: 11, fontWeight: "600" },
   closeBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: "#f5f5f5",
-    alignItems: "center",
-    justifyContent: "center",
-    marginLeft: 8,
+    width: 28, height: 28, borderRadius: 14, backgroundColor: "#f5f5f5",
+    alignItems: "center", justifyContent: "center", marginLeft: 8,
   },
-  closeBtnText: {
-    fontSize: 12,
-    color: "#757575",
-  },
+  closeBtnText: { fontSize: 12, color: "#757575" },
   sheetSectionLabel: {
-    fontSize: 11,
-    fontWeight: "600",
-    letterSpacing: 0.6,
-    textTransform: "uppercase",
-    color: "#bdbdbd",
-    marginBottom: 10,
+    fontSize: 11, fontWeight: "600", letterSpacing: 0.6,
+    textTransform: "uppercase", color: "#bdbdbd",
+    marginBottom: 8, paddingHorizontal: 20,
   },
-  sheetScroll: { flex: 1 },
-  noGamesText: {
-    fontSize: 13,
-    color: "#bdbdbd",
-    lineHeight: 20,
-    textAlign: "center",
-    marginTop: 16,
-  },
+  sheetScroll: { flex: 1, paddingHorizontal: 20 },
+  noGamesText: { fontSize: 13, color: "#bdbdbd", lineHeight: 20, textAlign: "center", marginTop: 16 },
   gameRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f5f5f5",
-    gap: 12,
+    flexDirection: "row", justifyContent: "space-between", alignItems: "center",
+    paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "#f5f5f5", gap: 12,
   },
   gameRowLeft: { flex: 1 },
-  gameRowSport: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#212121",
-    marginBottom: 2,
-  },
-  gameRowTime: {
-    fontSize: 12,
-    color: "#9e9e9e",
-    marginBottom: 6,
-  },
-  miniBar: {
-    height: 3,
-    backgroundColor: "#f5f5f5",
-    borderRadius: 2,
-    marginBottom: 4,
-    overflow: "hidden",
-  },
-  miniBarFill: {
-    height: "100%",
-    borderRadius: 2,
-  },
-  gameRowSlots: {
-    fontSize: 11,
-    color: "#9e9e9e",
-  },
-  gameRowBtns: {
-    flexDirection: "column",
-    gap: 6,
-    alignItems: "flex-end",
-  },
-  joinBtn: {
-    paddingHorizontal: 16,
-    paddingVertical: 7,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#bdbdbd",
-  },
-  joinBtnDisabled: {
-    borderColor: "#e0e0e0",
-  },
-  joinBtnText: {
-    fontSize: 13,
-    fontWeight: "500",
-    color: "#212121",
-  },
-  joinBtnTextDisabled: {
-    color: "#bdbdbd",
-  },
-  joinedBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    backgroundColor: "#e8f5e9",
-  },
-  joinedBadgeText: {
-    fontSize: 12,
-    fontWeight: "500",
-    color: "#2e7d32",
-  },
-  leaveBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    backgroundColor: "#fce4ec",
-    borderWidth: 1,
-    borderColor: "#f8bbd0",
-  },
-  leaveBtnText: {
-    fontSize: 12,
-    fontWeight: "500",
-    color: "#c62828",
-  },
+  gameRowTitleRow: { flexDirection: "row", alignItems: "center", gap: 4, marginBottom: 2 },
+  gameRowEmoji: { fontSize: 14 },
+  gameRowSport: { fontSize: 14, fontWeight: "600", color: "#212121" },
+  gameRowCourt: { fontSize: 12, color: "#757575", marginBottom: 2 },
+  gameRowTime: { fontSize: 12, color: "#9e9e9e", marginBottom: 6 },
+  miniBar: { height: 3, backgroundColor: "#f5f5f5", borderRadius: 2, marginBottom: 4, overflow: "hidden" },
+  miniBarFill: { height: "100%", borderRadius: 2 },
+  gameRowSlots: { fontSize: 11, color: "#9e9e9e" },
+  gameRowBtns: { flexDirection: "column", gap: 6, alignItems: "flex-end" },
+  joinBtn: { paddingHorizontal: 16, paddingVertical: 7, borderRadius: 8, borderWidth: 1, borderColor: "#bdbdbd" },
+  joinBtnDisabled: { borderColor: "#e0e0e0" },
+  joinBtnText: { fontSize: 13, fontWeight: "500", color: "#212121" },
+  joinBtnTextDisabled: { color: "#bdbdbd" },
+  joinedBadge: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, backgroundColor: "#e8f5e9" },
+  joinedBadgeText: { fontSize: 12, fontWeight: "500", color: "#2e7d32" },
+  leaveBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, backgroundColor: "#fce4ec", borderWidth: 1, borderColor: "#f8bbd0" },
+  leaveBtnText: { fontSize: 12, fontWeight: "500", color: "#c62828" },
 });
