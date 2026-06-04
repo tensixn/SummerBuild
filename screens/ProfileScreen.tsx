@@ -52,6 +52,8 @@ export default function ProfileScreen() {
   const [joinedGames, setJoinedGames] = useState<Game[]>([]);
   const [createdGames, setCreatedGames] = useState<Game[]>([]);
   const [activeModal, setActiveModal] = useState<ModalType>(null);
+  const [showReviews, setShowReviews] = useState(false);
+  const [showFriendReviews, setShowFriendReviews] = useState(false);
 
   // Friend profile view state
   const [selectedFriend, setSelectedFriend] = useState<Profile | null>(null);
@@ -135,6 +137,28 @@ export default function ProfileScreen() {
     setLoadingFriend(false);
   }
 
+  function confirmRemoveFriend(friend: Profile) {
+    Alert.alert("Remove friend?", `Remove ${friend.username} from your friends?`, [
+      { text: "Cancel", style: "cancel" },
+      { text: "Remove", style: "destructive", onPress: () => removeFriend(friend) },
+    ]);
+  }
+
+  async function removeFriend(friend: Profile) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { error } = await supabase.from("friends")
+      .delete()
+      .or(`and(requester_id.eq.${user.id},receiver_id.eq.${friend.id}),and(requester_id.eq.${friend.id},receiver_id.eq.${user.id})`)
+      .eq("status", "accepted");
+    if (error) { Alert.alert("Error", error.message); return; }
+    setFriends((prev) => prev.filter((f) => f.id !== friend.id));
+    setSelectedFriend(null);
+    setFriendReviews([]);
+    setFriendUpcomingGames([]);
+    setFriendReviewText("");
+  }
+
   async function submitFriendReview() {
     if (!friendReviewText.trim() || !selectedFriend) return;
     const { data: { user } } = await supabase.auth.getUser();
@@ -154,15 +178,18 @@ export default function ProfileScreen() {
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, aspect: [1, 1], quality: 0.5, base64: true });
     if (result.canceled || !result.assets[0]) return;
     const asset = result.assets[0];
-    setAvatarUri(asset.uri);
+    if (!asset.base64) return;
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user || !asset.base64) return;
+    if (!user) return;
     const filePath = `avatars/${user.id}.jpg`;
-    const { error } = await supabase.storage.from("avartars").upload(filePath, decode(asset.base64), { contentType: "image/jpeg", upsert: true });
-    if (error) { Alert.alert("Upload failed", error.message); return; }
-    const { data: urlData } = supabase.storage.from("avartars").getPublicUrl(filePath);
-    await supabase.from("profiles").update({ avatar_url: urlData.publicUrl }).eq("id", user.id);
-    setAvatarUri(urlData.publicUrl);
+    const { error: uploadError } = await supabase.storage.from("avatars").upload(filePath, decode(asset.base64), { contentType: "image/jpeg", upsert: true });
+    if (uploadError) { Alert.alert("Upload failed", uploadError.message); return; }
+    const { data: urlData } = supabase.storage.from("avatars").getPublicUrl(filePath);
+    const publicUrl = `${urlData.publicUrl}?t=${new Date().getTime()}`;
+    const { error: updateError } = await supabase.from("profiles").update({ avatar_url: publicUrl }).eq("id", user.id);
+    if (updateError) { Alert.alert("Save failed", updateError.message); return; }
+    setAvatarUri(publicUrl);
+    setProfile((prev) => prev ? { ...prev, avatar_url: publicUrl } : prev);
   }
 
   function decode(base64: string): Uint8Array {
@@ -325,19 +352,24 @@ export default function ProfileScreen() {
           </>
         )}
 
-        <Text style={styles.sectionLabel}>Reviews ({reviews.length})</Text>
-        {reviews.length === 0 ? (
-          <Text style={styles.emptyText}>No reviews yet.</Text>
-        ) : (
-          reviews.map((r) => (
-            <View key={r.id} style={styles.reviewCard}>
-              <View style={styles.reviewHeader}>
-                <Text style={styles.reviewerName}>{r.reviewer_name}</Text>
-                <Text style={styles.reviewDate}>{new Date(r.created_at).toLocaleDateString()}</Text>
+        <Pressable style={styles.collapsibleHeader} onPress={() => setShowReviews((v) => !v)}>
+          <Text style={styles.sectionLabel}>Reviews ({reviews.length})</Text>
+          <Text style={styles.chevron}>{showReviews ? "▲" : "▼"}</Text>
+        </Pressable>
+        {showReviews && (
+          reviews.length === 0 ? (
+            <Text style={styles.emptyText}>No reviews yet.</Text>
+          ) : (
+            reviews.map((r) => (
+              <View key={r.id} style={styles.reviewCard}>
+                <View style={styles.reviewHeader}>
+                  <Text style={styles.reviewerName}>{r.reviewer_name}</Text>
+                  <Text style={styles.reviewDate}>{new Date(r.created_at).toLocaleDateString()}</Text>
+                </View>
+                <Text style={styles.reviewComment}>{r.comment}</Text>
               </View>
-              <Text style={styles.reviewComment}>{r.comment}</Text>
-            </View>
-          ))
+            ))
+          )
         )}
 
         <Pressable style={styles.signOutBtn} onPress={() => Alert.alert("For real?", "", [{ text: "No", style: "cancel" }, { text: "Yes", style: "destructive", onPress: () => supabase.auth.signOut() }])}>
@@ -402,10 +434,10 @@ export default function ProfileScreen() {
       <Modal visible={selectedFriend !== null} animationType="slide" presentationStyle="pageSheet">
         <SafeAreaView style={styles.modalSafe}>
           <View style={styles.modalHeader}>
-            <Pressable onPress={() => { setSelectedFriend(null); setFriendReviews([]); setFriendUpcomingGames([]); setFriendReviewText(""); }} style={{ flex: 1 }}>
+            <Pressable onPress={() => { setSelectedFriend(null); setFriendReviews([]); setFriendUpcomingGames([]); setFriendReviewText(""); setShowFriendReviews(false); }} style={{ flex: 1 }}>
               <Text style={styles.backBtnText}>‹ Friends</Text>
             </Pressable>
-            <Pressable onPress={() => { setSelectedFriend(null); setActiveModal(null); setFriendReviews([]); setFriendUpcomingGames([]); setFriendReviewText(""); }}>
+            <Pressable onPress={() => { setSelectedFriend(null); setActiveModal(null); setFriendReviews([]); setFriendUpcomingGames([]); setFriendReviewText(""); setShowFriendReviews(false); }}>
               <Text style={styles.modalClose}>✕</Text>
             </Pressable>
           </View>
@@ -423,6 +455,11 @@ export default function ProfileScreen() {
                   </View>
                 )}
                 <Text style={styles.friendProfileUsername}>{selectedFriend?.username}</Text>
+                {selectedFriend && (
+                  <Pressable style={styles.removeFriendBtn} onPress={() => confirmRemoveFriend(selectedFriend)}>
+                    <Text style={styles.removeFriendBtnText}>Remove friend</Text>
+                  </Pressable>
+                )}
               </View>
 
               <Text style={styles.sectionLabel}>Sports Interests</Text>
@@ -463,19 +500,24 @@ export default function ProfileScreen() {
                 </Pressable>
               </View>
 
-              <Text style={styles.sectionLabel}>Reviews ({friendReviews.length})</Text>
-              {friendReviews.length === 0 ? (
-                <Text style={styles.emptyText}>No reviews yet.</Text>
-              ) : (
-                friendReviews.map((r) => (
-                  <View key={r.id} style={styles.reviewCard}>
-                    <View style={styles.reviewHeader}>
-                      <Text style={styles.reviewerName}>{r.reviewer_name}</Text>
-                      <Text style={styles.reviewDate}>{new Date(r.created_at).toLocaleDateString()}</Text>
+              <Pressable style={styles.collapsibleHeader} onPress={() => setShowFriendReviews((v) => !v)}>
+                <Text style={styles.sectionLabel}>Reviews ({friendReviews.length})</Text>
+                <Text style={styles.chevron}>{showFriendReviews ? "▲" : "▼"}</Text>
+              </Pressable>
+              {showFriendReviews && (
+                friendReviews.length === 0 ? (
+                  <Text style={styles.emptyText}>No reviews yet.</Text>
+                ) : (
+                  friendReviews.map((r) => (
+                    <View key={r.id} style={styles.reviewCard}>
+                      <View style={styles.reviewHeader}>
+                        <Text style={styles.reviewerName}>{r.reviewer_name}</Text>
+                        <Text style={styles.reviewDate}>{new Date(r.created_at).toLocaleDateString()}</Text>
+                      </View>
+                      <Text style={styles.reviewComment}>{r.comment}</Text>
                     </View>
-                    <Text style={styles.reviewComment}>{r.comment}</Text>
-                  </View>
-                ))
+                  ))
+                )
               )}
             </ScrollView>
           )}
@@ -504,7 +546,9 @@ const styles = StyleSheet.create({
   statNum: { fontSize: 22, fontWeight: "700", color: "#212121" },
   statLabel: { fontSize: 11, color: "#9e9e9e", marginTop: 2 },
   statDivider: { width: 1, backgroundColor: "#e0e0e0" },
-  sectionLabel: { fontSize: 11, fontWeight: "600", letterSpacing: 0.6, textTransform: "uppercase", color: "#bdbdbd", marginBottom: 12, marginTop: 20 },
+  collapsibleHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 20, marginBottom: 12 },
+  chevron: { fontSize: 11, color: "#bdbdbd" },
+  sectionLabel: { fontSize: 11, fontWeight: "600", letterSpacing: 0.6, textTransform: "uppercase", color: "#bdbdbd", marginBottom: 0, marginTop: 0 },
   sportsRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 8 },
   sportChip: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, borderWidth: 1, borderColor: "#e0e0e0", backgroundColor: "#fff" },
   sportChipActive: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, backgroundColor: "#212121", borderWidth: 1, borderColor: "#212121" },
@@ -535,7 +579,9 @@ const styles = StyleSheet.create({
   friendProfileAvatar: { width: 80, height: 80, borderRadius: 40, marginBottom: 12 },
   friendProfileAvatarPlaceholder: { width: 80, height: 80, borderRadius: 40, backgroundColor: "#212121", alignItems: "center", justifyContent: "center", marginBottom: 12 },
   friendProfileAvatarText: { fontSize: 32, fontWeight: "700", color: "#fff" },
-  friendProfileUsername: { fontSize: 20, fontWeight: "700", color: "#212121" },
+  friendProfileUsername: { fontSize: 20, fontWeight: "700", color: "#212121", marginBottom: 10 },
+  removeFriendBtn: { paddingHorizontal: 16, paddingVertical: 7, borderRadius: 8, borderWidth: 1, borderColor: "#e0e0e0", backgroundColor: "#fff" },
+  removeFriendBtnText: { fontSize: 13, fontWeight: "600", color: "#e53935" },
   backBtnText: { fontSize: 16, color: "#212121", fontWeight: "500" },
   signOutBtn: { marginTop: 32, paddingVertical: 14, borderRadius: 12, borderWidth: 1, borderColor: "#e0e0e0", alignItems: "center", backgroundColor: "#fff" },
   signOutText: { fontSize: 14, fontWeight: "600", color: "#e53935" },
