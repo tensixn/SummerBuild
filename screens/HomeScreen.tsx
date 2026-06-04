@@ -112,6 +112,15 @@ export default function HomeScreen() {
     fetchAllNotifications();
   }
 
+  async function markAllRead() {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    await supabase.from("notifications").update({ is_read: true }).eq("user_email", user.email).eq("is_read", false);
+    setNotifications([]);
+    setShowNotifModal(false);
+    fetchAllNotifications();
+  }
+
   async function onRefresh() {
     setRefreshing(true);
     await Promise.all([fetchGames(), fetchJoined(), fetchUpcoming(), fetchNotifications(), fetchAllNotifications()]);
@@ -363,7 +372,7 @@ export default function HomeScreen() {
           />
           {allNotifications.some((n) => !n.is_read) && (
             <View style={styles.mailboxFooter}>
-              <Pressable style={styles.markAllReadBtn} onPress={async () => { await markNotificationsRead(); fetchAllNotifications(); }}>
+              <Pressable style={styles.markAllReadBtn} onPress={markAllRead}>
                 <Text style={styles.markAllReadText}>Mark all as read</Text>
               </Pressable>
             </View>
