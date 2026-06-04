@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
-import { View, Text, Pressable, StyleSheet, SafeAreaView } from "react-native";
+import { View, Text, Pressable, StyleSheet } from "react-native";
 import { StatusBar } from "expo-status-bar";
+import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import HomeScreen from "./screens/HomeScreen";
 import MapScreen from "./screens/MapScreen";
 import ProfileScreen from "./screens/ProfileScreen";
@@ -9,14 +10,23 @@ import SignupScreen from "./screens/SignupScreen";
 import SearchScreen from "./screens/SearchScreen";
 import { supabase } from "./lib/supabase";
 
-type Tab = "games" | "map" | "profile" | "search"; // ← only one declaration
+type Tab = "games" | "map" | "profile" | "search";
 type AuthScreen = "login" | "signup";
 
 export default function App() {
+  return (
+    <SafeAreaProvider>
+      <AppContent />
+    </SafeAreaProvider>
+  );
+}
+
+function AppContent() {
   const [tab, setTab] = useState<Tab>("games");
   const [authScreen, setAuthScreen] = useState<AuthScreen>("login");
   const [loggedIn, setLoggedIn] = useState(false);
   const [checking, setChecking] = useState(true);
+  const insets = useSafeAreaInsets();
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -48,26 +58,24 @@ export default function App() {
          tab === "search" ? <SearchScreen /> :
          <ProfileScreen />}
       </View>
-      <SafeAreaView style={styles.navSafe}>
-        <View style={styles.nav}>
-          <Pressable style={styles.navItem} onPress={() => setTab("games")}>
-            <Text style={[styles.navIcon, tab === "games" && styles.navIconActive]}>⚡️</Text>
-            <Text style={[styles.navLabel, tab === "games" && styles.navLabelActive]}>Games</Text>
-          </Pressable>
-          <Pressable style={styles.navItem} onPress={() => setTab("map")}>
-            <Text style={[styles.navIcon, tab === "map" && styles.navIconActive]}>🗺</Text>
-            <Text style={[styles.navLabel, tab === "map" && styles.navLabelActive]}>Map</Text>
-          </Pressable>
-          <Pressable style={styles.navItem} onPress={() => setTab("search")}>
-            <Text style={[styles.navIcon, tab === "search" && styles.navIconActive]}>🔍</Text>
-            <Text style={[styles.navLabel, tab === "search" && styles.navLabelActive]}>Search</Text>
-          </Pressable>
-          <Pressable style={styles.navItem} onPress={() => setTab("profile")}>
-            <Text style={[styles.navIcon, tab === "profile" && styles.navIconActive]}>👤</Text>
-            <Text style={[styles.navLabel, tab === "profile" && styles.navLabelActive]}>Profile</Text>
-          </Pressable>
-        </View>
-      </SafeAreaView>
+      <View style={[styles.nav, { paddingBottom: insets.bottom || 8 }]}>
+        <Pressable style={styles.navItem} onPress={() => setTab("games")}>
+          <Text style={[styles.navIcon, tab === "games" && styles.navIconActive]}>⚡️</Text>
+          <Text style={[styles.navLabel, tab === "games" && styles.navLabelActive]}>Games</Text>
+        </Pressable>
+        <Pressable style={styles.navItem} onPress={() => setTab("map")}>
+          <Text style={[styles.navIcon, tab === "map" && styles.navIconActive]}>🗺</Text>
+          <Text style={[styles.navLabel, tab === "map" && styles.navLabelActive]}>Map</Text>
+        </Pressable>
+        <Pressable style={styles.navItem} onPress={() => setTab("search")}>
+          <Text style={[styles.navIcon, tab === "search" && styles.navIconActive]}>🔍</Text>
+          <Text style={[styles.navLabel, tab === "search" && styles.navLabelActive]}>Search</Text>
+        </Pressable>
+        <Pressable style={styles.navItem} onPress={() => setTab("profile")}>
+          <Text style={[styles.navIcon, tab === "profile" && styles.navIconActive]}>👤</Text>
+          <Text style={[styles.navLabel, tab === "profile" && styles.navLabelActive]}>Profile</Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -75,12 +83,13 @@ export default function App() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#fafafa" },
   content: { flex: 1 },
-  navSafe: {
+  nav: {
     backgroundColor: "#fff",
     borderTopWidth: 1,
     borderTopColor: "#f0f0f0",
+    flexDirection: "row",
+    paddingVertical: 8,
   },
-  nav: { flexDirection: "row", paddingVertical: 8 },
   navItem: { flex: 1, alignItems: "center", gap: 2 },
   navIcon: { fontSize: 22, opacity: 0.4 },
   navIconActive: { opacity: 1 },
