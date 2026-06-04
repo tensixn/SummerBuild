@@ -1,8 +1,9 @@
 import { useState } from "react";
 import {
   View, Text, TextInput, Pressable,
-  StyleSheet, KeyboardAvoidingView, Platform, Alert,
+  StyleSheet, Alert, TouchableOpacity,
 } from "react-native";
+import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { supabase } from "../lib/supabase";
 
 export default function SignupScreen({ onSwitch, onSignup }: {
@@ -11,10 +12,17 @@ export default function SignupScreen({ onSwitch, onSignup }: {
 }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [username, setUsername] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
   const [loading, setLoading] = useState(false);
 
   async function handleSignup() {
+    if (password !== confirmPassword) {
+      Alert.alert("Error", "Passwords don't match!");
+      return;
+    }
     setLoading(true);
     const { error } = await supabase.auth.signUp({ email, password });
     setLoading(false);
@@ -26,9 +34,10 @@ export default function SignupScreen({ onSwitch, onSignup }: {
   }
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
+    <KeyboardAwareScrollView
+      contentContainerStyle={styles.container}
+      keyboardShouldPersistTaps="handled"
+      enableOnAndroid
     >
       <Text style={styles.title}>Create Account</Text>
       <Text style={styles.subtitle}>Join NTU Sports today</Text>
@@ -48,37 +57,65 @@ export default function SignupScreen({ onSwitch, onSignup }: {
         autoCapitalize="none"
         keyboardType="email-address"
       />
-      <TextInput
-        style={styles.input}
-        placeholder="Password"
-        value={password}
-        onChangeText={setPassword}
-        secureTextEntry
-      />
 
-      <Pressable style={styles.btn} onPress={handleSignup} disabled={loading}>
+      <View style={styles.passwordRow}>
+        <TextInput
+          style={styles.passwordInput}
+          placeholder="Password"
+          value={password}
+          onChangeText={setPassword}
+          secureTextEntry={!showPassword}
+        />
+        <TouchableOpacity style={styles.eyeBtn} onPress={() => setShowPassword(p => !p)}>
+          <Text style={styles.eyeIcon}>{showPassword ? "🙈" : "👁️"}</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.passwordRow}>
+        <TextInput
+          style={styles.passwordInput}
+          placeholder="Confirm Password"
+          value={confirmPassword}
+          onChangeText={setConfirmPassword}
+          secureTextEntry={!showConfirm}
+        />
+        <TouchableOpacity style={styles.eyeBtn} onPress={() => setShowConfirm(p => !p)}>
+          <Text style={styles.eyeIcon}>{showConfirm ? "🙈" : "👁️"}</Text>
+        </TouchableOpacity>
+      </View>
+
+      <Pressable style={[styles.btn, loading && styles.btnDisabled]} onPress={handleSignup} disabled={loading}>
         <Text style={styles.btnText}>{loading ? "Creating account..." : "Sign up"}</Text>
       </Pressable>
 
       <Pressable onPress={onSwitch}>
         <Text style={styles.switchText}>Already have an account? <Text style={styles.switchLink}>Sign in</Text></Text>
       </Pressable>
-    </KeyboardAvoidingView>
+    </KeyboardAwareScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, justifyContent: "center", padding: 24, backgroundColor: "#fff" },
+  container: { flexGrow: 1, justifyContent: "center", padding: 24, backgroundColor: "#fff" },
   title: { fontSize: 28, fontWeight: "700", color: "#212121", marginBottom: 6, textAlign: "center" },
   subtitle: { fontSize: 14, color: "#9e9e9e", marginBottom: 32, textAlign: "center" },
   input: {
     borderWidth: 1, borderColor: "#e0e0e0", borderRadius: 10,
     padding: 14, fontSize: 15, marginBottom: 14, backgroundColor: "#fafafa",
   },
+  passwordRow: {
+    flexDirection: "row", alignItems: "center",
+    borderWidth: 1, borderColor: "#e0e0e0", borderRadius: 10,
+    backgroundColor: "#fafafa", marginBottom: 14,
+  },
+  passwordInput: { flex: 1, padding: 14, fontSize: 15 },
+  eyeBtn: { paddingHorizontal: 14 },
+  eyeIcon: { fontSize: 18 },
   btn: {
     backgroundColor: "#212121", borderRadius: 10,
     padding: 16, alignItems: "center", marginBottom: 16,
   },
+  btnDisabled: { opacity: 0.6 },
   btnText: { color: "#fff", fontSize: 15, fontWeight: "600" },
   switchText: { textAlign: "center", fontSize: 13, color: "#9e9e9e" },
   switchLink: { color: "#212121", fontWeight: "600" },
