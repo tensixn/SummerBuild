@@ -35,6 +35,8 @@ type Notification = {
   message: string;
   is_read: boolean;
   created_at: string;
+  type: string | null;
+  related_user_id: string | null;
 };
 
 export default function HomeScreen() {
@@ -93,7 +95,7 @@ export default function HomeScreen() {
     const { data } = await supabase.from("notifications").select("*").eq("user_email", user.email).eq("is_read", false).order("created_at", { ascending: false });
     if (data && data.length > 0) {
       setNotifications(data);
-      setShowNotifModal(true);
+      if (data.some((n) => n.type !== "friend_request")) setShowNotifModal(true);
     }
   }, []);
 
@@ -105,11 +107,42 @@ export default function HomeScreen() {
   }, []);
 
   async function markNotificationsRead() {
-    const ids = notifications.map((n) => n.id);
-    await supabase.from("notifications").update({ is_read: true }).in("id", ids);
-    setNotifications([]);
+    const ids = notifications.filter((n) => n.type !== "friend_request").map((n) => n.id);
+    if (ids.length > 0) await supabase.from("notifications").update({ is_read: true }).in("id", ids);
+    setNotifications((prev) => prev.filter((n) => n.type === "friend_request"));
     setShowNotifModal(false);
     fetchAllNotifications();
+  }
+
+  async function markAllRead() {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    await supabase.from("notifications").update({ is_read: true }).eq("user_email", user.email).eq("is_read", false).neq("type", "friend_request");
+    setNotifications((prev) => prev.filter((n) => n.type === "friend_request"));
+    setShowNotifModal(false);
+    fetchAllNotifications();
+  }
+
+  async function acceptFriendRequest(n: Notification) {
+    if (!n.related_user_id) return;
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { error } = await supabase.from("friends").update({ status: "accepted" }).eq("requester_id", n.related_user_id).eq("receiver_id", user.id);
+    if (error) { Alert.alert("Error", error.message); return; }
+    await supabase.from("notifications").update({ is_read: true }).eq("id", n.id);
+    setAllNotifications((prev) => prev.filter((x) => x.id !== n.id));
+    setNotifications((prev) => prev.filter((x) => x.id !== n.id));
+  }
+
+  async function declineFriendRequest(n: Notification) {
+    if (!n.related_user_id) return;
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { error } = await supabase.from("friends").delete().eq("requester_id", n.related_user_id).eq("receiver_id", user.id).eq("status", "pending");
+    if (error) { Alert.alert("Error", error.message); return; }
+    await supabase.from("notifications").update({ is_read: true }).eq("id", n.id);
+    setAllNotifications((prev) => prev.filter((x) => x.id !== n.id));
+    setNotifications((prev) => prev.filter((x) => x.id !== n.id));
   }
 
   async function onRefresh() {
@@ -323,6 +356,16 @@ export default function HomeScreen() {
               <View key={n.id} style={styles.notifItem}>
                 <Text style={styles.notifMessage}>{n.message}</Text>
                 <Text style={styles.notifTime}>{new Date(n.created_at).toLocaleDateString()}</Text>
+                {n.type === "friend_request" && (
+                  <View style={styles.friendReqBtns}>
+                    <Pressable style={styles.acceptFriendBtn} onPress={() => acceptFriendRequest(n)}>
+                      <Text style={styles.acceptFriendBtnText}>Accept</Text>
+                    </Pressable>
+                    <Pressable style={styles.declineFriendBtn} onPress={() => declineFriendRequest(n)}>
+                      <Text style={styles.declineFriendBtnText}>Decline</Text>
+                    </Pressable>
+                  </View>
+                )}
               </View>
             ))}
             <Pressable style={styles.notifDismissBtn} onPress={markNotificationsRead}>
@@ -356,6 +399,16 @@ export default function HomeScreen() {
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.notifMessage, n.is_read && styles.notifMessageRead]}>{n.message}</Text>
                     <Text style={styles.notifTime}>{formatDate(n.created_at)}</Text>
+                    {n.type === "friend_request" && !n.is_read && (
+                      <View style={styles.friendReqBtns}>
+                        <Pressable style={styles.acceptFriendBtn} onPress={() => acceptFriendRequest(n)}>
+                          <Text style={styles.acceptFriendBtnText}>Accept</Text>
+                        </Pressable>
+                        <Pressable style={styles.declineFriendBtn} onPress={() => declineFriendRequest(n)}>
+                          <Text style={styles.declineFriendBtnText}>Decline</Text>
+                        </Pressable>
+                      </View>
+                    )}
                   </View>
                 </View>
               </View>
@@ -363,7 +416,7 @@ export default function HomeScreen() {
           />
           {allNotifications.some((n) => !n.is_read) && (
             <View style={styles.mailboxFooter}>
-              <Pressable style={styles.markAllReadBtn} onPress={async () => { await markNotificationsRead(); fetchAllNotifications(); }}>
+              <Pressable style={styles.markAllReadBtn} onPress={markAllRead}>
                 <Text style={styles.markAllReadText}>Mark all as read</Text>
               </Pressable>
             </View>
@@ -585,6 +638,11 @@ const styles = StyleSheet.create({
   mailboxItemRead: { backgroundColor: "#fafafa", borderColor: "#f0f0f0" },
   mailboxItemRow: { flexDirection: "row", gap: 10, alignItems: "flex-start" },
   mailboxDot: { fontSize: 12, color: "#e53935", marginTop: 2 },
+  friendReqBtns: { flexDirection: "row", gap: 8, marginTop: 10 },
+  acceptFriendBtn: { flex: 1, backgroundColor: "#212121", borderRadius: 8, paddingVertical: 8, alignItems: "center" },
+  acceptFriendBtnText: { color: "#fff", fontWeight: "600", fontSize: 13 },
+  declineFriendBtn: { flex: 1, backgroundColor: "#fff", borderRadius: 8, paddingVertical: 8, alignItems: "center", borderWidth: 1, borderColor: "#e0e0e0" },
+  declineFriendBtnText: { color: "#757575", fontWeight: "600", fontSize: 13 },
   mailboxFooter: { padding: 20, borderTopWidth: 1, borderTopColor: "#f0f0f0" },
   markAllReadBtn: { backgroundColor: "#212121", borderRadius: 10, padding: 14, alignItems: "center" },
   markAllReadText: { color: "#fff", fontWeight: "600", fontSize: 14 },

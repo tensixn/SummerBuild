@@ -126,12 +126,52 @@ export default function SearchScreen() {
     if (selectedProfile?.id === receiverId) setSelectedProfile((p) => p ? { ...p, friendStatus: updated } : p);
   }
 
+  async function cancelRequest(receiverId: string) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { error } = await supabase.from("friends").delete().eq("requester_id", user.id).eq("receiver_id", receiverId).eq("status", "pending");
+    if (error) { Alert.alert("Error", error.message); return; }
+    const updated: FriendStatus = "none";
+    setResults((prev) => prev.map((r) => r.id === receiverId ? { ...r, friendStatus: updated } : r));
+    if (selectedProfile?.id === receiverId) setSelectedProfile((p) => p ? { ...p, friendStatus: updated } : p);
+  }
+
+  function confirmRemoveFriend(friendId: string) {
+    Alert.alert("Remove friend?", "They will no longer appear in your friends list.", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Remove", style: "destructive", onPress: () => removeFriend(friendId) },
+    ]);
+  }
+
+  async function removeFriend(friendId: string) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { error } = await supabase.from("friends")
+      .delete()
+      .or(`and(requester_id.eq.${user.id},receiver_id.eq.${friendId}),and(requester_id.eq.${friendId},receiver_id.eq.${user.id})`)
+      .eq("status", "accepted");
+    if (error) { Alert.alert("Error", error.message); return; }
+    const updated: FriendStatus = "none";
+    setResults((prev) => prev.map((r) => r.id === friendId ? { ...r, friendStatus: updated } : r));
+    if (selectedProfile?.id === friendId) setSelectedProfile((p) => p ? { ...p, friendStatus: updated } : p);
+  }
+
   async function acceptRequest(requesterId: string) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
     const { error } = await supabase.from("friends").update({ status: "accepted" }).eq("requester_id", requesterId).eq("receiver_id", user.id);
     if (error) { Alert.alert("Error", error.message); return; }
     const updated: FriendStatus = "accepted";
+    setResults((prev) => prev.map((r) => r.id === requesterId ? { ...r, friendStatus: updated } : r));
+    if (selectedProfile?.id === requesterId) setSelectedProfile((p) => p ? { ...p, friendStatus: updated } : p);
+  }
+
+  async function declineRequest(requesterId: string) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { error } = await supabase.from("friends").delete().eq("requester_id", requesterId).eq("receiver_id", user.id).eq("status", "pending");
+    if (error) { Alert.alert("Error", error.message); return; }
+    const updated: FriendStatus = "none";
     setResults((prev) => prev.map((r) => r.id === requesterId ? { ...r, friendStatus: updated } : r));
     if (selectedProfile?.id === requesterId) setSelectedProfile((p) => p ? { ...p, friendStatus: updated } : p);
   }
@@ -179,11 +219,16 @@ export default function SearchScreen() {
   function renderActionBtn(item: SearchResult) {
     switch (item.friendStatus) {
       case "accepted":
-        return <View style={styles.friendBadge}><Text style={styles.friendBadgeText}>Friends ✓</Text></View>;
+        return <Pressable style={styles.friendBadge} onPress={() => confirmRemoveFriend(item.id)}><Text style={styles.friendBadgeText}>Friends ✓</Text></Pressable>;
       case "pending_sent":
-        return <View style={styles.pendingBadge}><Text style={styles.pendingBadgeText}>Requested</Text></View>;
+        return <Pressable style={styles.pendingBadge} onPress={() => cancelRequest(item.id)}><Text style={styles.pendingBadgeText}>Requested ✕</Text></Pressable>;
       case "pending_received":
-        return <Pressable style={styles.acceptBtn} onPress={() => acceptRequest(item.id)}><Text style={styles.acceptBtnText}>Accept</Text></Pressable>;
+        return (
+          <View style={styles.pendingReceivedRow}>
+            <Pressable style={styles.acceptBtn} onPress={() => acceptRequest(item.id)}><Text style={styles.acceptBtnText}>Accept</Text></Pressable>
+            <Pressable style={styles.declineBtn} onPress={() => declineRequest(item.id)}><Text style={styles.declineBtnText}>Decline</Text></Pressable>
+          </View>
+        );
       default:
         return <Pressable style={styles.addBtn} onPress={() => sendRequest(item.id)}><Text style={styles.addBtnText}>Add friend</Text></Pressable>;
     }
@@ -370,8 +415,11 @@ const styles = StyleSheet.create({
   addBtnText: { color: "#fff", fontSize: 12, fontWeight: "600" },
   pendingBadge: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 8, backgroundColor: "#f5f5f5", borderWidth: 1, borderColor: "#e0e0e0" },
   pendingBadgeText: { color: "#9e9e9e", fontSize: 12, fontWeight: "500" },
+  pendingReceivedRow: { flexDirection: "row", gap: 6 },
   acceptBtn: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 8, backgroundColor: "#e8f5e9", borderWidth: 1, borderColor: "#a5d6a7" },
   acceptBtnText: { color: "#2e7d32", fontSize: 12, fontWeight: "600" },
+  declineBtn: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 8, backgroundColor: "#fff", borderWidth: 1, borderColor: "#e0e0e0" },
+  declineBtnText: { color: "#757575", fontSize: 12, fontWeight: "600" },
   friendBadge: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 8, backgroundColor: "#e8f5e9" },
   friendBadgeText: { color: "#2e7d32", fontSize: 12, fontWeight: "600" },
   profileHeader: { alignItems: "center", marginBottom: 24, paddingTop: 8 },
