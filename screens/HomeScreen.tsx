@@ -30,9 +30,16 @@ type Review = {
   created_at: string;
 };
 
+type Notification = {
+  id: string;
+  message: string;
+  created_at: string;
+};
+
 export default function HomeScreen() {
   const [games, setGames] = useState<Game[]>([]);
   const [joinedIds, setJoinedIds] = useState<Set<string>>(new Set());
+  const [upcomingGames, setUpcomingGames] = useState<Game[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<Sport>("All");
   const [modalVisible, setModalVisible] = useState(false);
@@ -46,16 +53,16 @@ export default function HomeScreen() {
   const [submittingReview, setSubmittingReview] = useState(false);
   const [profileInDetail, setProfileInDetail] = useState<Profile | null>(null);
   const [profileInDetailReviews, setProfileInDetailReviews] = useState<Review[]>([]);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [showNotifModal, setShowNotifModal] = useState(false);
+  const [showUpcoming, setShowUpcoming] = useState(false);
 
   const fetchGames = useCallback(async () => {
     setLoading(true);
     const { data, error } = await supabase
       .from("games_with_counts").select("*").eq("status", "open").order("start_time", { ascending: true });
     if (error) Alert.alert("Error", error.message);
-    else {
-      const now = Date.now();
-      setGames((data ?? []).filter(g => !g.end_time || new Date(g.end_time).getTime() > now));
-    }
+    else setGames(data ?? []);
     setLoading(false);
   }, []);
 
@@ -66,59 +73,72 @@ export default function HomeScreen() {
     if (data) setJoinedIds(new Set(data.map((r) => r.game_id)));
   }, []);
 
+  const fetchUpcoming = useCallback(async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { data: participations } = await supabase
+      .from("game_participants").select("game_id").eq("user_name", user.email);
+    if (!participations || participations.length === 0) { setUpcomingGames([]); return; }
+    const ids = participations.map((p) => p.game_id);
+    const { data: games } = await supabase
+      .from("games_with_counts").select("*").in("id", ids).eq("status", "open")
+      .gte("start_time", new Date().toISOString()).order("start_time", { ascending: true });
+    if (games) setUpcomingGames(games);
+  }, []);
+
+  const fetchNotifications = useCallback(async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { data } = await supabase
+      .from("notifications").select("*")
+      .eq("user_email", user.email).eq("is_read", false)
+      .order("created_at", { ascending: false });
+    if (data && data.length > 0) {
+      setNotifications(data);
+      setShowNotifModal(true);
+    }
+  }, []);
+
+  async function markNotificationsRead() {
+    const ids = notifications.map((n) => n.id);
+    await supabase.from("notifications").update({ is_read: true }).in("id", ids);
+    setNotifications([]);
+    setShowNotifModal(false);
+  }
+
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (user) setCurrentUserId(user.id);
     });
     fetchGames();
     fetchJoined();
+    fetchUpcoming();
+    fetchNotifications();
+
     const channel = supabase.channel("games-realtime")
-      .on("postgres_changes", { event: "*", schema: "public", table: "games" }, fetchGames)
-      .on("postgres_changes", { event: "*", schema: "public", table: "game_participants" }, () => { fetchGames(); fetchJoined(); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "games" }, () => { fetchGames(); fetchUpcoming(); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "game_participants" }, () => { fetchGames(); fetchJoined(); fetchUpcoming(); })
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications" }, fetchNotifications)
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [fetchGames, fetchJoined]);
+  }, [fetchGames, fetchJoined, fetchUpcoming, fetchNotifications]);
 
   async function openGame(game: Game) {
     setSelectedGame(game);
     setLoadingParticipants(true);
-
     const { data: rows } = await supabase
-      .from("game_participants")
-      .select("user_name, user_id")
-      .eq("game_id", game.id);
-
-    if (!rows || rows.length === 0) {
-      setParticipants([]);
-      setLoadingParticipants(false);
-      return;
-    }
-
+      .from("game_participants").select("user_name, user_id").eq("game_id", game.id);
+    if (!rows || rows.length === 0) { setParticipants([]); setLoadingParticipants(false); return; }
     const userIds = rows.map((r) => r.user_id).filter(Boolean);
     let profileMap: Record<string, { username: string; avatar_url: string | null; sports_interests: string[] }> = {};
-
     if (userIds.length > 0) {
-      const { data: profiles } = await supabase
-        .from("profiles")
-        .select("id, username, avatar_url, sports_interests")
-        .in("id", userIds);
-      if (profiles) {
-        profiles.forEach((p) => { profileMap[p.id] = p; });
-      }
+      const { data: profiles } = await supabase.from("profiles").select("id, username, avatar_url, sports_interests").in("id", userIds);
+      if (profiles) profiles.forEach((p) => { profileMap[p.id] = p; });
     }
-
-    setParticipants(
-      rows.map((r) => {
-        const profile = r.user_id ? profileMap[r.user_id] : null;
-        return {
-          user_name: r.user_name,
-          profile_id: r.user_id ?? null,
-          username: profile?.username ?? null,
-          avatar_url: profile?.avatar_url ?? null,
-          sports_interests: profile?.sports_interests ?? null,
-        };
-      })
-    );
+    setParticipants(rows.map((r) => {
+      const profile = r.user_id ? profileMap[r.user_id] : null;
+      return { user_name: r.user_name, profile_id: r.user_id ?? null, username: profile?.username ?? null, avatar_url: profile?.avatar_url ?? null, sports_interests: profile?.sports_interests ?? null };
+    }));
     setLoadingParticipants(false);
   }
 
@@ -134,11 +154,7 @@ export default function HomeScreen() {
     if (!user) return;
     if (user.id === selectedProfile.id) { Alert.alert("Not allowed", "You cannot review yourself."); return; }
     setSubmittingReview(true);
-    const { error } = await supabase.from("reviews").insert({
-      profile_id: selectedProfile.id,
-      reviewer_name: user.email?.split("@")[0] ?? "Anonymous",
-      comment: reviewText.trim(),
-    });
+    const { error } = await supabase.from("reviews").insert({ profile_id: selectedProfile.id, reviewer_name: user.email?.split("@")[0] ?? "Anonymous", comment: reviewText.trim() });
     setSubmittingReview(false);
     if (error) { Alert.alert("Error", error.message); return; }
     setReviewText("");
@@ -154,6 +170,7 @@ export default function HomeScreen() {
     if (error) { Alert.alert("Error", error.message); return; }
     setJoinedIds((prev) => new Set(prev).add(game.id));
     fetchGames();
+    fetchUpcoming();
   }
 
   async function leaveGame(game: Game) {
@@ -163,14 +180,14 @@ export default function HomeScreen() {
     if (error) { Alert.alert("Error", error.message); return; }
     setJoinedIds((prev) => { const next = new Set(prev); next.delete(game.id); return next; });
     fetchGames();
+    fetchUpcoming();
   }
 
   function deleteGame(game: Game) {
     Alert.alert("Delete game?", "This will permanently remove the game for all players.", [
       { text: "Keep it", style: "cancel" },
       { text: "Delete", style: "destructive", onPress: async () => {
-        await supabase.from("game_participants").delete().eq("game_id", game.id);
-        const { error } = await supabase.from("games").delete().eq("id", game.id);
+        const { error } = await supabase.from("games").update({ status: "cancelled" }).eq("id", game.id);
         if (error) Alert.alert("Error", error.message);
         else fetchGames();
       }},
@@ -187,6 +204,10 @@ export default function HomeScreen() {
     return m ? `in ${h}h ${m}m` : `in ${h}h`;
   }
 
+  function formatDate(isoString: string) {
+    return new Date(isoString).toLocaleDateString("en-SG", { weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  }
+
   const filtered = filter === "All" ? games : games.filter((g) => g.sport === filter);
 
   return (
@@ -194,9 +215,19 @@ export default function HomeScreen() {
       <View style={styles.container}>
         <View style={styles.header}>
           <Text style={styles.appName}>NTU Sports</Text>
-          <View style={styles.livePill}>
-            <View style={styles.liveDot} />
-            <Text style={styles.liveText}>live</Text>
+          <View style={styles.headerRight}>
+            {notifications.length > 0 && (
+              <Pressable style={styles.notifBtn} onPress={() => setShowNotifModal(true)}>
+                <Text style={styles.notifIcon}>🔔</Text>
+                <View style={styles.notifBadge}>
+                  <Text style={styles.notifBadgeText}>{notifications.length}</Text>
+                </View>
+              </Pressable>
+            )}
+            <View style={styles.livePill}>
+              <View style={styles.liveDot} />
+              <Text style={styles.liveText}>live</Text>
+            </View>
           </View>
         </View>
         <Text style={styles.sub}>Find and join pickup games around campus</Text>
@@ -219,6 +250,30 @@ export default function HomeScreen() {
               <Pressable style={styles.createBtn} onPress={() => setModalVisible(true)}>
                 <Text style={styles.createBtnText}>+ Create a game</Text>
               </Pressable>
+
+              {/* Upcoming Games Section */}
+              {upcomingGames.length > 0 && (
+                <View style={styles.upcomingSection}>
+                  <Pressable style={styles.upcomingHeader} onPress={() => setShowUpcoming(!showUpcoming)}>
+                    <Text style={styles.upcomingTitle}>📅 Your Upcoming Games ({upcomingGames.length})</Text>
+                    <Text style={styles.upcomingChevron}>{showUpcoming ? "▲" : "▼"}</Text>
+                  </Pressable>
+                  {showUpcoming && upcomingGames.map((game) => (
+                    <Pressable key={game.id} style={styles.upcomingCard} onPress={() => openGame(game)}>
+                      <View style={styles.upcomingCardLeft}>
+                        <Text style={styles.upcomingSport}>{game.sport}</Text>
+                        <Text style={styles.upcomingLocation}>{game.location}</Text>
+                        <Text style={styles.upcomingTime}>{formatDate(game.start_time)}</Text>
+                      </View>
+                      <View style={styles.upcomingSlots}>
+                        <Text style={styles.upcomingSlotsText}>{game.current_players}/{game.max_players}</Text>
+                        <Text style={styles.upcomingSlotsLabel}>players</Text>
+                      </View>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
+
               <Text style={styles.sectionLabel}>Open games</Text>
               {loading && <ActivityIndicator style={{ marginTop: 32 }} />}
             </>
@@ -245,12 +300,29 @@ export default function HomeScreen() {
         />
       </View>
 
-      <CreateGameModal visible={modalVisible} onClose={() => setModalVisible(false)} onCreated={fetchGames} />
+      <CreateGameModal visible={modalVisible} onClose={() => setModalVisible(false)} onCreated={() => { fetchGames(); fetchUpcoming(); }} />
+
+      {/* Notification Modal */}
+      <Modal visible={showNotifModal} animationType="fade" transparent>
+        <View style={styles.notifOverlay}>
+          <View style={styles.notifModal}>
+            <Text style={styles.notifModalTitle}>🔔 Notifications</Text>
+            {notifications.map((n) => (
+              <View key={n.id} style={styles.notifItem}>
+                <Text style={styles.notifMessage}>{n.message}</Text>
+                <Text style={styles.notifTime}>{new Date(n.created_at).toLocaleDateString()}</Text>
+              </View>
+            ))}
+            <Pressable style={styles.notifDismissBtn} onPress={markNotificationsRead}>
+              <Text style={styles.notifDismissText}>Dismiss all</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
 
       {/* Game Detail Modal */}
       <Modal visible={selectedGame !== null} animationType="slide" presentationStyle="pageSheet"
-        onDismiss={() => { setProfileInDetail(null); setProfileInDetailReviews([]); }}
-      >
+        onDismiss={() => { setProfileInDetail(null); setProfileInDetailReviews([]); }}>
         <SafeAreaView style={styles.modalSafe}>
           <View style={styles.modalHeader}>
             {profileInDetail ? (
@@ -266,7 +338,6 @@ export default function HomeScreen() {
           </View>
 
           {profileInDetail ? (
-            /* ── Inline profile view ── */
             <ScrollView contentContainerStyle={styles.modalContent}>
               <View style={styles.profileHeader}>
                 {profileInDetail.avatar_url ? (
@@ -278,20 +349,16 @@ export default function HomeScreen() {
                 )}
                 <Text style={styles.profileUsername}>{profileInDetail.username}</Text>
               </View>
-
               <Text style={styles.sectionLabel}>Sports Interests</Text>
               <View style={styles.sportsRow}>
                 {profileInDetail.sports_interests.length > 0 ? (
                   profileInDetail.sports_interests.map((s) => (
-                    <View key={s} style={styles.sportChip}>
-                      <Text style={styles.sportChipText}>{s}</Text>
-                    </View>
+                    <View key={s} style={styles.sportChip}><Text style={styles.sportChipText}>{s}</Text></View>
                   ))
                 ) : (
-                  <Text style={styles.emptyText}>No sports interests listed.</Text>
+                  <Text style={styles.noSportsText}>No sports interests listed.</Text>
                 )}
               </View>
-
               <Text style={styles.sectionLabel}>Reviews ({profileInDetailReviews.length})</Text>
               {profileInDetailReviews.length === 0 ? (
                 <Text style={styles.emptyText}>No reviews yet.</Text>
@@ -308,14 +375,12 @@ export default function HomeScreen() {
               )}
             </ScrollView>
           ) : (
-            /* ── Participants list ── */
             <ScrollView contentContainerStyle={styles.modalContent}>
               <View style={styles.gameInfoRow}>
                 <Text style={styles.gameInfoText}>🕐 {selectedGame ? formatTime(selectedGame.start_time) : ""}</Text>
                 <Text style={styles.gameInfoText}>👥 {selectedGame?.current_players}/{selectedGame?.max_players} players</Text>
                 <Text style={styles.gameInfoText}>⚡ {selectedGame?.skill_level}</Text>
               </View>
-
               <Text style={styles.sectionLabel}>Players Joined</Text>
               {loadingParticipants ? (
                 <ActivityIndicator style={{ marginTop: 16 }} />
@@ -338,9 +403,7 @@ export default function HomeScreen() {
                       <Image source={{ uri: p.avatar_url }} style={styles.participantAvatar} />
                     ) : (
                       <View style={styles.participantAvatarPlaceholder}>
-                        <Text style={styles.participantAvatarText}>
-                          {(p.username ?? p.user_name)[0].toUpperCase()}
-                        </Text>
+                        <Text style={styles.participantAvatarText}>{(p.username ?? p.user_name)[0].toUpperCase()}</Text>
                       </View>
                     )}
                     <View style={styles.participantInfo}>
@@ -351,9 +414,7 @@ export default function HomeScreen() {
                         )}
                       </View>
                       {p.sports_interests && p.sports_interests.length > 0 && (
-                        <Text style={styles.participantSports} numberOfLines={1}>
-                          {p.sports_interests.join(" · ")}
-                        </Text>
+                        <Text style={styles.participantSports} numberOfLines={1}>{p.sports_interests.join(" · ")}</Text>
                       )}
                     </View>
                     {p.profile_id && <Text style={styles.participantArrow}>›</Text>}
@@ -380,45 +441,28 @@ export default function HomeScreen() {
                 <Image source={{ uri: selectedProfile.avatar_url }} style={styles.profileAvatar} />
               ) : (
                 <View style={styles.profileAvatarPlaceholder}>
-                  <Text style={styles.profileAvatarText}>
-                    {(selectedProfile?.username ?? "?")[0].toUpperCase()}
-                  </Text>
+                  <Text style={styles.profileAvatarText}>{(selectedProfile?.username ?? "?")[0].toUpperCase()}</Text>
                 </View>
               )}
               <Text style={styles.profileUsername}>{selectedProfile?.username}</Text>
             </View>
-
             <Text style={styles.sectionLabel}>Sports Interests</Text>
             <View style={styles.sportsRow}>
               {(selectedProfile?.sports_interests ?? []).length > 0 ? (
                 selectedProfile?.sports_interests.map((sport) => (
-                  <View key={sport} style={styles.sportChip}>
-                    <Text style={styles.sportChipText}>{sport}</Text>
-                  </View>
+                  <View key={sport} style={styles.sportChip}><Text style={styles.sportChipText}>{sport}</Text></View>
                 ))
               ) : (
                 <Text style={styles.noSportsText}>No sports interests listed.</Text>
               )}
             </View>
-
             <Text style={styles.sectionLabel}>Leave a Review</Text>
             <View style={styles.reviewInputRow}>
-              <TextInput
-                style={styles.reviewInput}
-                placeholder="Write a comment..."
-                value={reviewText}
-                onChangeText={setReviewText}
-                multiline
-              />
-              <Pressable
-                style={[styles.reviewSubmitBtn, !reviewText.trim() && styles.reviewSubmitBtnDisabled]}
-                onPress={submitReview}
-                disabled={submittingReview || !reviewText.trim()}
-              >
+              <TextInput style={styles.reviewInput} placeholder="Write a comment..." value={reviewText} onChangeText={setReviewText} multiline />
+              <Pressable style={[styles.reviewSubmitBtn, !reviewText.trim() && styles.reviewSubmitBtnDisabled]} onPress={submitReview} disabled={submittingReview || !reviewText.trim()}>
                 <Text style={styles.reviewSubmitText}>Post</Text>
               </Pressable>
             </View>
-
             <Text style={styles.sectionLabel}>Reviews ({profileReviews.length})</Text>
             {profileReviews.length === 0 ? (
               <Text style={styles.emptyText}>No reviews yet.</Text>
@@ -445,6 +489,11 @@ const styles = StyleSheet.create({
   container: { flex: 1, paddingHorizontal: 20 },
   header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingTop: 16, marginBottom: 2 },
   appName: { fontSize: 22, fontWeight: "700", color: "#212121" },
+  headerRight: { flexDirection: "row", alignItems: "center", gap: 12 },
+  notifBtn: { position: "relative" },
+  notifIcon: { fontSize: 22 },
+  notifBadge: { position: "absolute", top: -4, right: -4, backgroundColor: "#e53935", borderRadius: 8, minWidth: 16, height: 16, alignItems: "center", justifyContent: "center" },
+  notifBadgeText: { color: "#fff", fontSize: 10, fontWeight: "700" },
   livePill: { flexDirection: "row", alignItems: "center", gap: 5 },
   liveDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: "#4caf50" },
   liveText: { fontSize: 12, color: "#9e9e9e" },
@@ -456,10 +505,30 @@ const styles = StyleSheet.create({
   chipTextActive: { color: "#fff", fontWeight: "600" },
   createBtn: { borderWidth: 1, borderStyle: "dashed", borderColor: "#bdbdbd", borderRadius: 12, padding: 12, alignItems: "center", marginBottom: 20, backgroundColor: "#fff" },
   createBtnText: { fontSize: 14, color: "#757575" },
+  upcomingSection: { backgroundColor: "#fff", borderRadius: 14, borderWidth: 1, borderColor: "#e0e0e0", marginBottom: 20, overflow: "hidden" },
+  upcomingHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 14 },
+  upcomingTitle: { fontSize: 14, fontWeight: "600", color: "#212121" },
+  upcomingChevron: { fontSize: 12, color: "#9e9e9e" },
+  upcomingCard: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 14, paddingVertical: 12, borderTopWidth: 1, borderTopColor: "#f5f5f5" },
+  upcomingCardLeft: { flex: 1 },
+  upcomingSport: { fontSize: 14, fontWeight: "600", color: "#212121", marginBottom: 2 },
+  upcomingLocation: { fontSize: 12, color: "#757575", marginBottom: 2 },
+  upcomingTime: { fontSize: 11, color: "#9e9e9e" },
+  upcomingSlots: { alignItems: "center" },
+  upcomingSlotsText: { fontSize: 16, fontWeight: "700", color: "#212121" },
+  upcomingSlotsLabel: { fontSize: 10, color: "#9e9e9e" },
   sectionLabel: { fontSize: 11, fontWeight: "600", letterSpacing: 0.7, textTransform: "uppercase", color: "#bdbdbd", marginBottom: 12, marginTop: 20 },
   list: { paddingBottom: 40 },
   empty: { alignItems: "center", paddingTop: 48 },
   emptyText: { fontSize: 14, color: "#bdbdbd", textAlign: "center", lineHeight: 22 },
+  notifOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center", padding: 24 },
+  notifModal: { backgroundColor: "#fff", borderRadius: 16, padding: 24, width: "100%" },
+  notifModalTitle: { fontSize: 18, fontWeight: "700", color: "#212121", marginBottom: 16 },
+  notifItem: { backgroundColor: "#fff3e0", borderRadius: 10, padding: 12, marginBottom: 10, borderWidth: 1, borderColor: "#ffe0b2" },
+  notifMessage: { fontSize: 13, color: "#212121", lineHeight: 20, marginBottom: 4 },
+  notifTime: { fontSize: 11, color: "#9e9e9e" },
+  notifDismissBtn: { backgroundColor: "#212121", borderRadius: 10, padding: 14, alignItems: "center", marginTop: 8 },
+  notifDismissText: { color: "#fff", fontWeight: "600", fontSize: 14 },
   modalSafe: { flex: 1, backgroundColor: "#fafafa" },
   modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 20, borderBottomWidth: 1, borderBottomColor: "#f0f0f0" },
   modalTitle: { fontSize: 17, fontWeight: "700", color: "#212121", flex: 1, marginRight: 8 },
