@@ -65,12 +65,11 @@ export default function ProfileScreen() {
       setAvatarUri(data.avatar_url ?? null);
     } else {
       const newProfile = {
-  id: user.id,
-  username: user.email?.split("@")[0] ?? "Player",
-  sports_interests: [],
-  avatar_url: null,
-  email: user.email,
-};
+        id: user.id,
+        username: user.email?.split("@")[0] ?? "Player",
+        sports_interests: [],
+        avatar_url: null,
+      };
       await supabase.from("profiles").insert(newProfile);
       setProfile({ ...newProfile });
       setUsername(newProfile.username);

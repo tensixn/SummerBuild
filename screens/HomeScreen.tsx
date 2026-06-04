@@ -10,12 +10,10 @@ import CreateGameModal from "../components/CreateGameModal";
 
 type Participant = {
   user_name: string;
-  profile?: {
-    id: string;
-    username: string;
-    avatar_url: string | null;
-    sports_interests: string[];
-  } | null;
+  profile_id: string | null;
+  username: string | null;
+  avatar_url: string | null;
+  sports_interests: string[] | null;
 };
 
 type Profile = {
@@ -46,13 +44,18 @@ export default function HomeScreen() {
   const [profileReviews, setProfileReviews] = useState<Review[]>([]);
   const [reviewText, setReviewText] = useState("");
   const [submittingReview, setSubmittingReview] = useState(false);
+  const [profileInDetail, setProfileInDetail] = useState<Profile | null>(null);
+  const [profileInDetailReviews, setProfileInDetailReviews] = useState<Review[]>([]);
 
   const fetchGames = useCallback(async () => {
     setLoading(true);
     const { data, error } = await supabase
       .from("games_with_counts").select("*").eq("status", "open").order("start_time", { ascending: true });
     if (error) Alert.alert("Error", error.message);
-    else setGames(data ?? []);
+    else {
+      const now = Date.now();
+      setGames((data ?? []).filter(g => !g.end_time || new Date(g.end_time).getTime() > now));
+    }
     setLoading(false);
   }, []);
 
@@ -77,30 +80,47 @@ export default function HomeScreen() {
   }, [fetchGames, fetchJoined]);
 
   async function openGame(game: Game) {
-  setSelectedGame(game);
-  setLoadingParticipants(true);
-  const { data } = await supabase
-    .from("game_participants").select("user_name").eq("game_id", game.id);
-  if (!data) { setLoadingParticipants(false); return; }
+    setSelectedGame(game);
+    setLoadingParticipants(true);
 
-  const withProfiles: Participant[] = await Promise.all(
-    data.map(async (p) => {
-      // Look up user by email in auth, then find their profile
-      const { data: { users } } = await supabase.auth.admin.listUsers();
-      const authUser = users?.find((u) => u.email === p.user_name);
-      if (!authUser) return { user_name: p.user_name, profile: null };
+    const { data: rows } = await supabase
+      .from("game_participants")
+      .select("user_name, user_id")
+      .eq("game_id", game.id);
 
-      const { data: profile } = await supabase
+    if (!rows || rows.length === 0) {
+      setParticipants([]);
+      setLoadingParticipants(false);
+      return;
+    }
+
+    const userIds = rows.map((r) => r.user_id).filter(Boolean);
+    let profileMap: Record<string, { username: string; avatar_url: string | null; sports_interests: string[] }> = {};
+
+    if (userIds.length > 0) {
+      const { data: profiles } = await supabase
         .from("profiles")
         .select("id, username, avatar_url, sports_interests")
-        .eq("id", authUser.id)
-        .single();
-      return { user_name: p.user_name, profile: profile ?? null };
-    })
-  );
-  setParticipants(withProfiles);
-  setLoadingParticipants(false);
-}
+        .in("id", userIds);
+      if (profiles) {
+        profiles.forEach((p) => { profileMap[p.id] = p; });
+      }
+    }
+
+    setParticipants(
+      rows.map((r) => {
+        const profile = r.user_id ? profileMap[r.user_id] : null;
+        return {
+          user_name: r.user_name,
+          profile_id: r.user_id ?? null,
+          username: profile?.username ?? null,
+          avatar_url: profile?.avatar_url ?? null,
+          sports_interests: profile?.sports_interests ?? null,
+        };
+      })
+    );
+    setLoadingParticipants(false);
+  }
 
   async function openProfile(profile: Profile) {
     setSelectedProfile(profile);
@@ -130,7 +150,7 @@ export default function HomeScreen() {
     if (game.current_players >= game.max_players) { Alert.alert("Full", "This game is already full."); return; }
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
-    const { error } = await supabase.from("game_participants").insert({ game_id: game.id, user_name: user.email });
+    const { error } = await supabase.from("game_participants").insert({ game_id: game.id, user_name: user.email, user_id: user.id });
     if (error) { Alert.alert("Error", error.message); return; }
     setJoinedIds((prev) => new Set(prev).add(game.id));
     fetchGames();
@@ -145,11 +165,12 @@ export default function HomeScreen() {
     fetchGames();
   }
 
-  function cancelGame(game: Game) {
-    Alert.alert("Cancel game?", "This will remove the game for all players.", [
+  function deleteGame(game: Game) {
+    Alert.alert("Delete game?", "This will permanently remove the game for all players.", [
       { text: "Keep it", style: "cancel" },
-      { text: "Cancel game", style: "destructive", onPress: async () => {
-        const { error } = await supabase.from("games").update({ status: "cancelled" }).eq("id", game.id);
+      { text: "Delete", style: "destructive", onPress: async () => {
+        await supabase.from("game_participants").delete().eq("game_id", game.id);
+        const { error } = await supabase.from("games").delete().eq("id", game.id);
         if (error) Alert.alert("Error", error.message);
         else fetchGames();
       }},
@@ -216,7 +237,7 @@ export default function HomeScreen() {
                 isJoined={joinedIds.has(item.id)}
                 onJoin={joinGame}
                 onLeave={leaveGame}
-                onCancel={item.created_by === currentUserId ? cancelGame : undefined}
+                onCancel={item.created_by === currentUserId ? deleteGame : undefined}
               />
             </Pressable>
           )}
@@ -227,55 +248,120 @@ export default function HomeScreen() {
       <CreateGameModal visible={modalVisible} onClose={() => setModalVisible(false)} onCreated={fetchGames} />
 
       {/* Game Detail Modal */}
-      <Modal visible={selectedGame !== null} animationType="slide" presentationStyle="pageSheet">
+      <Modal visible={selectedGame !== null} animationType="slide" presentationStyle="pageSheet"
+        onDismiss={() => { setProfileInDetail(null); setProfileInDetailReviews([]); }}
+      >
         <SafeAreaView style={styles.modalSafe}>
           <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>{selectedGame?.sport} · {selectedGame?.location}</Text>
-            <Pressable onPress={() => { setSelectedGame(null); setParticipants([]); }}>
+            {profileInDetail ? (
+              <Pressable onPress={() => { setProfileInDetail(null); setProfileInDetailReviews([]); }} style={styles.backBtn}>
+                <Text style={styles.backBtnText}>‹ Players</Text>
+              </Pressable>
+            ) : (
+              <Text style={styles.modalTitle}>{selectedGame?.sport} · {selectedGame?.location}</Text>
+            )}
+            <Pressable onPress={() => { setSelectedGame(null); setParticipants([]); setProfileInDetail(null); setProfileInDetailReviews([]); }}>
               <Text style={styles.modalClose}>✕</Text>
             </Pressable>
           </View>
-          <ScrollView contentContainerStyle={styles.modalContent}>
-            <View style={styles.gameInfoRow}>
-              <Text style={styles.gameInfoText}>🕐 {selectedGame ? formatTime(selectedGame.start_time) : ""}</Text>
-              <Text style={styles.gameInfoText}>👥 {selectedGame?.current_players}/{selectedGame?.max_players} players</Text>
-              <Text style={styles.gameInfoText}>⚡ {selectedGame?.skill_level}</Text>
-            </View>
 
-            <Text style={styles.sectionLabel}>Players Joined</Text>
-            {loadingParticipants ? (
-              <ActivityIndicator style={{ marginTop: 16 }} />
-            ) : participants.length === 0 ? (
-              <Text style={styles.emptyText}>No one has joined yet.</Text>
-            ) : (
-              participants.map((p) => (
-                <Pressable
-                  key={p.user_name}
-                  style={styles.participantCard}
-                  onPress={() => p.profile && openProfile(p.profile)}
-                >
-                  {p.profile?.avatar_url ? (
-                    <Image source={{ uri: p.profile.avatar_url }} style={styles.participantAvatar} />
-                  ) : (
-                    <View style={styles.participantAvatarPlaceholder}>
-                      <Text style={styles.participantAvatarText}>
-                        {(p.profile?.username ?? p.user_name)[0].toUpperCase()}
-                      </Text>
-                    </View>
-                  )}
-                  <View style={styles.participantInfo}>
-                    <Text style={styles.participantName}>{p.profile?.username ?? p.user_name}</Text>
-                    {p.profile?.sports_interests && p.profile.sports_interests.length > 0 && (
-                      <Text style={styles.participantSports} numberOfLines={1}>
-                        {p.profile.sports_interests.join(" · ")}
-                      </Text>
-                    )}
+          {profileInDetail ? (
+            /* ── Inline profile view ── */
+            <ScrollView contentContainerStyle={styles.modalContent}>
+              <View style={styles.profileHeader}>
+                {profileInDetail.avatar_url ? (
+                  <Image source={{ uri: profileInDetail.avatar_url }} style={styles.profileAvatar} />
+                ) : (
+                  <View style={styles.profileAvatarPlaceholder}>
+                    <Text style={styles.profileAvatarText}>{profileInDetail.username[0].toUpperCase()}</Text>
                   </View>
-                  {p.profile && <Text style={styles.participantArrow}>›</Text>}
-                </Pressable>
-              ))
-            )}
-          </ScrollView>
+                )}
+                <Text style={styles.profileUsername}>{profileInDetail.username}</Text>
+              </View>
+
+              <Text style={styles.sectionLabel}>Sports Interests</Text>
+              <View style={styles.sportsRow}>
+                {profileInDetail.sports_interests.length > 0 ? (
+                  profileInDetail.sports_interests.map((s) => (
+                    <View key={s} style={styles.sportChip}>
+                      <Text style={styles.sportChipText}>{s}</Text>
+                    </View>
+                  ))
+                ) : (
+                  <Text style={styles.emptyText}>No sports interests listed.</Text>
+                )}
+              </View>
+
+              <Text style={styles.sectionLabel}>Reviews ({profileInDetailReviews.length})</Text>
+              {profileInDetailReviews.length === 0 ? (
+                <Text style={styles.emptyText}>No reviews yet.</Text>
+              ) : (
+                profileInDetailReviews.map((r) => (
+                  <View key={r.id} style={styles.reviewCard}>
+                    <View style={styles.reviewHeader}>
+                      <Text style={styles.reviewerName}>{r.reviewer_name}</Text>
+                      <Text style={styles.reviewDate}>{new Date(r.created_at).toLocaleDateString()}</Text>
+                    </View>
+                    <Text style={styles.reviewComment}>{r.comment}</Text>
+                  </View>
+                ))
+              )}
+            </ScrollView>
+          ) : (
+            /* ── Participants list ── */
+            <ScrollView contentContainerStyle={styles.modalContent}>
+              <View style={styles.gameInfoRow}>
+                <Text style={styles.gameInfoText}>🕐 {selectedGame ? formatTime(selectedGame.start_time) : ""}</Text>
+                <Text style={styles.gameInfoText}>👥 {selectedGame?.current_players}/{selectedGame?.max_players} players</Text>
+                <Text style={styles.gameInfoText}>⚡ {selectedGame?.skill_level}</Text>
+              </View>
+
+              <Text style={styles.sectionLabel}>Players Joined</Text>
+              {loadingParticipants ? (
+                <ActivityIndicator style={{ marginTop: 16 }} />
+              ) : participants.length === 0 ? (
+                <Text style={styles.emptyText}>No one has joined yet.</Text>
+              ) : (
+                participants.map((p) => (
+                  <Pressable
+                    key={p.user_name}
+                    style={styles.participantCard}
+                    onPress={async () => {
+                      if (!p.profile_id) return;
+                      const profile = { id: p.profile_id, username: p.username ?? p.user_name, avatar_url: p.avatar_url ?? null, sports_interests: p.sports_interests ?? [] };
+                      setProfileInDetail(profile);
+                      const { data } = await supabase.from("reviews").select("*").eq("profile_id", profile.id).order("created_at", { ascending: false });
+                      setProfileInDetailReviews(data ?? []);
+                    }}
+                  >
+                    {p.avatar_url ? (
+                      <Image source={{ uri: p.avatar_url }} style={styles.participantAvatar} />
+                    ) : (
+                      <View style={styles.participantAvatarPlaceholder}>
+                        <Text style={styles.participantAvatarText}>
+                          {(p.username ?? p.user_name)[0].toUpperCase()}
+                        </Text>
+                      </View>
+                    )}
+                    <View style={styles.participantInfo}>
+                      <View style={styles.participantNameRow}>
+                        <Text style={styles.participantName}>{p.username ?? p.user_name}</Text>
+                        {p.profile_id === selectedGame?.created_by && (
+                          <Text style={styles.creatorBadge}>Host</Text>
+                        )}
+                      </View>
+                      {p.sports_interests && p.sports_interests.length > 0 && (
+                        <Text style={styles.participantSports} numberOfLines={1}>
+                          {p.sports_interests.join(" · ")}
+                        </Text>
+                      )}
+                    </View>
+                    {p.profile_id && <Text style={styles.participantArrow}>›</Text>}
+                  </Pressable>
+                ))
+              )}
+            </ScrollView>
+          )}
         </SafeAreaView>
       </Modal>
 
@@ -378,6 +464,8 @@ const styles = StyleSheet.create({
   modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 20, borderBottomWidth: 1, borderBottomColor: "#f0f0f0" },
   modalTitle: { fontSize: 17, fontWeight: "700", color: "#212121", flex: 1, marginRight: 8 },
   modalClose: { fontSize: 16, color: "#9e9e9e" },
+  backBtn: { flex: 1, marginRight: 8 },
+  backBtnText: { fontSize: 16, color: "#212121", fontWeight: "500" },
   modalContent: { padding: 20, paddingBottom: 48 },
   gameInfoRow: { flexDirection: "row", gap: 12, flexWrap: "wrap", marginBottom: 8 },
   gameInfoText: { fontSize: 13, color: "#757575" },
@@ -386,7 +474,9 @@ const styles = StyleSheet.create({
   participantAvatarPlaceholder: { width: 44, height: 44, borderRadius: 22, backgroundColor: "#212121", alignItems: "center", justifyContent: "center", marginRight: 12 },
   participantAvatarText: { color: "#fff", fontWeight: "700", fontSize: 18 },
   participantInfo: { flex: 1 },
-  participantName: { fontSize: 15, fontWeight: "600", color: "#212121", marginBottom: 2 },
+  participantNameRow: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 2 },
+  participantName: { fontSize: 15, fontWeight: "600", color: "#212121" },
+  creatorBadge: { fontSize: 11, fontWeight: "600", color: "#1565c0", backgroundColor: "#e3f2fd", paddingHorizontal: 7, paddingVertical: 2, borderRadius: 10 },
   participantSports: { fontSize: 12, color: "#9e9e9e" },
   participantArrow: { fontSize: 20, color: "#bdbdbd" },
   profileHeader: { alignItems: "center", marginBottom: 24 },

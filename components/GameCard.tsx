@@ -27,6 +27,12 @@ function formatTime(isoString: string) {
   return m ? `in ${h}h ${m}m` : `in ${h}h`;
 }
 
+function formatTimeRange(start: string, end: string | null) {
+  const fmt = (iso: string) =>
+    new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  return end ? `${fmt(start)} – ${fmt(end)}` : fmt(start);
+}
+
 function SlotBar({ current, max }: { current: number; max: number }) {
   const pct = Math.round((current / max) * 100);
   const color =
@@ -50,10 +56,16 @@ export default function GameCard({ game, isJoined, onJoin, onLeave, onCancel }: 
             {game.sport}
           </Text>
         </View>
-        <Text style={styles.timeText}>{formatTime(game.start_time)}</Text>
+        <View style={styles.timeGroup}>
+          <Text style={styles.timeRange}>{formatTimeRange(game.start_time, game.end_time)}</Text>
+          <Text style={styles.timeCountdown}>{formatTime(game.start_time)}</Text>
+        </View>
       </View>
 
       <Text style={styles.location}>{game.location}</Text>
+      {!!game.creator_username && (
+        <Text style={styles.creatorText}>by {game.creator_username}</Text>
+      )}
 
       <View style={styles.metaRow}>
         <Text style={styles.metaText}>{game.skill_level}</Text>
@@ -72,9 +84,16 @@ export default function GameCard({ game, isJoined, onJoin, onLeave, onCancel }: 
 
         <View style={styles.btnGroup}>
           {onCancel ? (
-            <Pressable style={styles.cancelBtn} onPress={() => onCancel(game)}>
-              <Text style={styles.cancelBtnText}>Cancel game</Text>
-            </Pressable>
+            <>
+              {isJoined && (
+                <View style={styles.joinedBadge}>
+                  <Text style={styles.joinedBadgeText}>Joined</Text>
+                </View>
+              )}
+              <Pressable style={styles.cancelBtn} onPress={() => onCancel(game)}>
+                <Text style={styles.cancelBtnText}>Delete game</Text>
+              </Pressable>
+            </>
           ) : isJoined ? (
             <>
               <View style={styles.joinedBadge}>
@@ -128,14 +147,28 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "600",
   },
-  timeText: {
+  timeGroup: {
+    alignItems: "flex-end",
+  },
+  timeRange: {
     fontSize: 12,
+    fontWeight: "500",
+    color: "#424242",
+  },
+  timeCountdown: {
+    fontSize: 11,
     color: "#9e9e9e",
+    marginTop: 1,
   },
   location: {
     fontSize: 16,
     fontWeight: "600",
     color: "#212121",
+    marginBottom: 2,
+  },
+  creatorText: {
+    fontSize: 11,
+    color: "#9e9e9e",
     marginBottom: 4,
   },
   metaRow: {

@@ -58,7 +58,7 @@ export default function App() {
             <Text style={[styles.navIcon, tab === "map" && styles.navIconActive]}>🗺</Text>
             <Text style={[styles.navLabel, tab === "map" && styles.navLabelActive]}>Map</Text>
           </Pressable>
-          <Pressable style={styles.navItem} onPress={() => setTab("search")}>  {/* ← added */}
+          <Pressable style={styles.navItem} onPress={() => setTab("search")}>
             <Text style={[styles.navIcon, tab === "search" && styles.navIconActive]}>🔍</Text>
             <Text style={[styles.navLabel, tab === "search" && styles.navLabelActive]}>Search</Text>
           </Pressable>

@@ -3,12 +3,14 @@ export type Game = {
   sport: string;
   location: string;
   start_time: string;
+  end_time: string | null;
   max_players: number;
   current_players: number;
   skill_level: string | null;
   description: string | null;
   status: string;
   created_by: string | null;
+  creator_username: string | null;
 };
 
 export type Sport =
