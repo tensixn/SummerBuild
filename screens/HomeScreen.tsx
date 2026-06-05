@@ -58,6 +58,7 @@ export default function HomeScreen() {
   const [rateGame, setRateGame] = useState<Game | null>(null);
   const [rateParticipants, setRateParticipants] = useState<Profile[]>([]);
   const [ratingSelections, setRatingSelections] = useState<Record<string, number>>({});
+  const [reviewSelections, setReviewSelections] = useState<Record<string, string>>({});
   const [submittingGameRating, setSubmittingGameRating] = useState(false);
   const [selectedProfile, setSelectedProfile] = useState<Profile | null>(null);
   const [profileReviews, setProfileReviews] = useState<Review[]>([]);
@@ -297,6 +298,7 @@ export default function HomeScreen() {
     setRateParticipants(profiles ?? []);
     setRateGame(game);
     setRatingSelections({});
+    setReviewSelections({});
     setShowRateModal(true);
   }
 
@@ -304,11 +306,21 @@ export default function HomeScreen() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user || !rateGame) return;
     setSubmittingGameRating(true);
-    const entries = Object.entries(ratingSelections).filter(([_, s]) => s > 0);
-    if (entries.length > 0) {
+    const ratingEntries = Object.entries(ratingSelections).filter(([_, s]) => s > 0);
+    if (ratingEntries.length > 0) {
       await supabase.from("ratings").upsert(
-        entries.map(([userId, stars]) => ({ rater_id: user.id, rated_id: userId, stars })),
+        ratingEntries.map(([userId, stars]) => ({ rater_id: user.id, rated_id: userId, stars })),
         { onConflict: "rater_id,rated_id" }
+      );
+    }
+    const reviewEntries = Object.entries(reviewSelections).filter(([_, c]) => c.trim().length > 0);
+    if (reviewEntries.length > 0) {
+      await supabase.from("reviews").insert(
+        reviewEntries.map(([userId, comment]) => ({
+          profile_id: userId,
+          reviewer_name: user.email?.split("@")[0] ?? "Anonymous",
+          comment: comment.trim(),
+        }))
       );
     }
     await supabase.from("rated_game_completions").insert({ user_id: user.id, game_id: rateGame.id });
@@ -317,6 +329,7 @@ export default function HomeScreen() {
     setRateGame(null);
     setRateParticipants([]);
     setRatingSelections({});
+    setReviewSelections({});
     fetchRatableGames();
   }
 
@@ -665,7 +678,7 @@ export default function HomeScreen() {
               <Text style={styles.modalTitle}>⭐ Rate Players</Text>
               {rateGame && <Text style={styles.rateGameSubtitle}>{rateGame.sport} · {rateGame.location}</Text>}
             </View>
-            <Pressable onPress={() => { setShowRateModal(false); setRateGame(null); setRateParticipants([]); setRatingSelections({}); }}>
+            <Pressable onPress={() => { setShowRateModal(false); setRateGame(null); setRateParticipants([]); setRatingSelections({}); setReviewSelections({}); }}>
               <Text style={styles.modalClose}>✕</Text>
             </Pressable>
           </View>
@@ -689,6 +702,13 @@ export default function HomeScreen() {
                     </Pressable>
                   ))}
                 </View>
+                <TextInput
+                  style={styles.rateReviewInput}
+                  placeholder="Leave a review (optional)"
+                  value={reviewSelections[p.id] ?? ""}
+                  onChangeText={(t) => setReviewSelections((prev) => ({ ...prev, [p.id]: t }))}
+                  multiline
+                />
               </View>
             ))}
           </ScrollView>
@@ -845,10 +865,11 @@ const styles = StyleSheet.create({
   rateNowBtn: { paddingHorizontal: 12, paddingVertical: 6, backgroundColor: "#212121", borderRadius: 8 },
   rateNowBtnText: { color: "#fff", fontSize: 12, fontWeight: "600" },
   rateGameSubtitle: { fontSize: 12, color: "#9e9e9e", marginTop: 2 },
-  ratePlayerCard: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: "#fff", borderRadius: 12, borderWidth: 1, borderColor: "#e0e0e0", padding: 12, marginBottom: 10 },
+  ratePlayerCard: { flexDirection: "column", backgroundColor: "#fff", borderRadius: 12, borderWidth: 1, borderColor: "#e0e0e0", padding: 12, marginBottom: 10 },
   ratePlayerLeft: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1 },
   ratePlayerName: { fontSize: 15, fontWeight: "600", color: "#212121" },
   rateStarsRow: { flexDirection: "row", gap: 4 },
+  rateReviewInput: { marginTop: 10, borderWidth: 1, borderColor: "#e0e0e0", borderRadius: 8, padding: 10, fontSize: 13, backgroundColor: "#fafafa", minHeight: 40, color: "#212121" },
   rateFooter: { padding: 20, borderTopWidth: 1, borderTopColor: "#f0f0f0" },
   rateDoneBtn: { backgroundColor: "#212121", borderRadius: 12, padding: 16, alignItems: "center" },
   rateDoneBtnText: { color: "#fff", fontWeight: "700", fontSize: 15 },
