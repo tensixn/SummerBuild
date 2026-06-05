@@ -39,6 +39,7 @@ export default function SearchScreen() {
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [currentUsername, setCurrentUsername] = useState<string | null>(null);
   const [selectedProfile, setSelectedProfile] = useState<SearchResult | null>(null);
   const [profileReviews, setProfileReviews] = useState<Review[]>([]);
   const [reviewText, setReviewText] = useState("");
@@ -48,8 +49,12 @@ export default function SearchScreen() {
   const [activeModal, setActiveModal] = useState<ModalType>(null);
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (user) setCurrentUserId(user.id);
+    supabase.auth.getUser().then(async ({ data: { user } }) => {
+      if (user) {
+        setCurrentUserId(user.id);
+        const { data: p } = await supabase.from("profiles").select("username").eq("id", user.id).single();
+        if (p) setCurrentUsername(p.username);
+      }
     });
   }, []);
 
@@ -183,7 +188,7 @@ export default function SearchScreen() {
     setSubmittingReview(true);
     const { error } = await supabase.from("reviews").insert({
       profile_id: selectedProfile.id,
-      reviewer_name: user.email?.split("@")[0] ?? "Anonymous",
+      reviewer_name: currentUsername ?? user.email?.split("@")[0] ?? "Anonymous",
       comment: reviewText.trim(),
     });
     setSubmittingReview(false);
