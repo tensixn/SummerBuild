@@ -48,6 +48,7 @@ export default function HomeScreen() {
   const [filter, setFilter] = useState<Sport>("All");
   const [modalVisible, setModalVisible] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [currentUsername, setCurrentUsername] = useState<string | null>(null);
   const [selectedGame, setSelectedGame] = useState<Game | null>(null);
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [loadingParticipants, setLoadingParticipants] = useState(false);
@@ -72,14 +73,21 @@ export default function HomeScreen() {
   const [showMailbox, setShowMailbox] = useState(false);
   const [showUpcoming, setShowUpcoming] = useState(false);
 
+  const cleanupExpiredGames = useCallback(async () => {
+    const now = new Date().toISOString();
+    await supabase.from("games").update({ status: "closed" }).eq("status", "open").not("end_time", "is", null).lt("end_time", now);
+    await supabase.from("games").update({ status: "closed" }).eq("status", "open").is("end_time", null).lt("start_time", now);
+  }, []);
+
   const fetchGames = useCallback(async () => {
     setLoading(true);
+    await cleanupExpiredGames();
     const { data, error } = await supabase
       .from("games_with_counts").select("*").eq("status", "open").order("start_time", { ascending: true });
     if (error) Alert.alert("Error", error.message);
     else setGames(data ?? []);
     setLoading(false);
-  }, []);
+  }, [cleanupExpiredGames]);
 
   const fetchJoined = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -175,8 +183,12 @@ export default function HomeScreen() {
   }
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (user) setCurrentUserId(user.id);
+    supabase.auth.getUser().then(async ({ data: { user } }) => {
+      if (user) {
+        setCurrentUserId(user.id);
+        const { data: p } = await supabase.from("profiles").select("username").eq("id", user.id).single();
+        if (p) setCurrentUsername(p.username);
+      }
     });
     fetchGames();
     fetchJoined();
@@ -243,7 +255,7 @@ export default function HomeScreen() {
     if (!user) return;
     if (user.id === selectedProfile.id) { Alert.alert("Not allowed", "You cannot review yourself."); return; }
     setSubmittingReview(true);
-    const { error } = await supabase.from("reviews").insert({ profile_id: selectedProfile.id, reviewer_name: user.email?.split("@")[0] ?? "Anonymous", comment: reviewText.trim() });
+    const { error } = await supabase.from("reviews").insert({ profile_id: selectedProfile.id, reviewer_name: currentUsername ?? user.email?.split("@")[0] ?? "Anonymous", comment: reviewText.trim() });
     setSubmittingReview(false);
     if (error) { Alert.alert("Error", error.message); return; }
     setReviewText("");

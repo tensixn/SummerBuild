@@ -234,7 +234,7 @@ export default function ProfileScreen() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
     setSubmittingFriendReview(true);
-    const { error } = await supabase.from("reviews").insert({ profile_id: selectedFriend.id, reviewer_name: user.email?.split("@")[0] ?? "Anonymous", comment: friendReviewText.trim() });
+    const { error } = await supabase.from("reviews").insert({ profile_id: selectedFriend.id, reviewer_name: profile?.username ?? user.email?.split("@")[0] ?? "Anonymous", comment: friendReviewText.trim() });
     setSubmittingFriendReview(false);
     if (error) { Alert.alert("Error", error.message); return; }
     setFriendReviewText("");
@@ -284,7 +284,7 @@ export default function ProfileScreen() {
     if (!user || !profile) return;
     if (user.id === profile.id) { Alert.alert("Not allowed", "You cannot review yourself."); return; }
     setSubmittingReview(true);
-    const { error } = await supabase.from("reviews").insert({ profile_id: profile.id, reviewer_name: user.email?.split("@")[0] ?? "Anonymous", comment: reviewText.trim() });
+    const { error } = await supabase.from("reviews").insert({ profile_id: profile.id, reviewer_name: profile?.username ?? user.email?.split("@")[0] ?? "Anonymous", comment: reviewText.trim() });
     setSubmittingReview(false);
     if (error) { Alert.alert("Error", error.message); return; }
     setReviewText("");

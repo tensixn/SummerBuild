@@ -36,7 +36,7 @@ function formatTimeRange(start: string, end: string | null) {
 function SlotBar({ current, max }: { current: number; max: number }) {
   const pct = Math.round((current / max) * 100);
   const color =
-    current >= max ? "#bdbdbd" : pct >= 75 ? "#ff9800" : "#4caf50";
+    current >= max ? "#4caf50" : pct >= 75 ? "#ff9800" : "#4caf50";
   return (
     <View style={styles.barBg}>
       <View style={[styles.barFill, { width: `${pct}%` as any, backgroundColor: color }]} />
