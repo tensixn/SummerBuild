@@ -266,7 +266,7 @@ export default function CreateGameModal({ visible, onClose, onCreated }: Props) 
                 value={startTime}
                 mode="time"
                 display="compact"
-                minuteInterval={15}
+                minuteInterval={1}
                 onChange={onStartTimeChange}
                 themeVariant="light"
               />
@@ -287,7 +287,7 @@ export default function CreateGameModal({ visible, onClose, onCreated }: Props) 
                 value={endTime}
                 mode="time"
                 display="compact"
-                minuteInterval={15}
+                minuteInterval={1}
                 onChange={onEndTimeChange}
                 themeVariant="light"
               />
@@ -308,7 +308,7 @@ export default function CreateGameModal({ visible, onClose, onCreated }: Props) 
             value={startTime}
             mode="time"
             display="clock"
-            minuteInterval={15}
+            minuteInterval={1}
             onChange={onStartTimeChange}
           />
         )}
@@ -317,7 +317,7 @@ export default function CreateGameModal({ visible, onClose, onCreated }: Props) 
             value={endTime}
             mode="time"
             display="clock"
-            minuteInterval={15}
+            minuteInterval={1}
             onChange={onEndTimeChange}
           />
         )}
