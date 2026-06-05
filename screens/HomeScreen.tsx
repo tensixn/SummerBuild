@@ -51,6 +51,14 @@ export default function HomeScreen() {
   const [selectedGame, setSelectedGame] = useState<Game | null>(null);
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [loadingParticipants, setLoadingParticipants] = useState(false);
+  const [participantRatings, setParticipantRatings] = useState<Record<string, string>>({});
+  const [ratableGames, setRatableGames] = useState<Game[]>([]);
+  const [showRatableGames, setShowRatableGames] = useState(true);
+  const [showRateModal, setShowRateModal] = useState(false);
+  const [rateGame, setRateGame] = useState<Game | null>(null);
+  const [rateParticipants, setRateParticipants] = useState<Profile[]>([]);
+  const [ratingSelections, setRatingSelections] = useState<Record<string, number>>({});
+  const [submittingGameRating, setSubmittingGameRating] = useState(false);
   const [selectedProfile, setSelectedProfile] = useState<Profile | null>(null);
   const [profileReviews, setProfileReviews] = useState<Review[]>([]);
   const [reviewText, setReviewText] = useState("");
@@ -106,6 +114,20 @@ export default function HomeScreen() {
     if (data) setAllNotifications(data);
   }, []);
 
+  const fetchRatableGames = useCallback(async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { data: myParts } = await supabase.from("game_participants").select("game_id").eq("user_id", user.id);
+    if (!myParts || myParts.length === 0) { setRatableGames([]); return; }
+    const gameIds = myParts.map((p) => p.game_id);
+    const { data: completions } = await supabase.from("rated_game_completions").select("game_id").eq("user_id", user.id).in("game_id", gameIds);
+    const completedIds = new Set(completions?.map((c) => c.game_id) ?? []);
+    const pendingIds = gameIds.filter((id) => !completedIds.has(id));
+    if (pendingIds.length === 0) { setRatableGames([]); return; }
+    const { data: games } = await supabase.from("games_with_counts").select("*").in("id", pendingIds).lte("start_time", new Date().toISOString()).eq("status", "open").order("start_time", { ascending: false });
+    setRatableGames(games ?? []);
+  }, []);
+
   async function markNotificationsRead() {
     const ids = notifications.filter((n) => n.type !== "friend_request").map((n) => n.id);
     if (ids.length > 0) await supabase.from("notifications").update({ is_read: true }).in("id", ids);
@@ -147,7 +169,7 @@ export default function HomeScreen() {
 
   async function onRefresh() {
     setRefreshing(true);
-    await Promise.all([fetchGames(), fetchJoined(), fetchUpcoming(), fetchNotifications(), fetchAllNotifications()]);
+    await Promise.all([fetchGames(), fetchJoined(), fetchUpcoming(), fetchNotifications(), fetchAllNotifications(), fetchRatableGames()]);
     setRefreshing(false);
   }
 
@@ -160,6 +182,7 @@ export default function HomeScreen() {
     fetchUpcoming();
     fetchNotifications();
     fetchAllNotifications();
+    fetchRatableGames();
 
     const channel = supabase.channel("games-realtime")
       .on("postgres_changes", { event: "*", schema: "public", table: "games" }, () => { fetchGames(); fetchUpcoming(); })
@@ -167,24 +190,44 @@ export default function HomeScreen() {
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications" }, () => { fetchNotifications(); fetchAllNotifications(); })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [fetchGames, fetchJoined, fetchUpcoming, fetchNotifications, fetchAllNotifications]);
+  }, [fetchGames, fetchJoined, fetchUpcoming, fetchNotifications, fetchAllNotifications, fetchRatableGames]);
 
   async function openGame(game: Game) {
     setSelectedGame(game);
     setLoadingParticipants(true);
     const { data: rows } = await supabase.from("game_participants").select("user_name, user_id").eq("game_id", game.id);
-    if (!rows || rows.length === 0) { setParticipants([]); setLoadingParticipants(false); return; }
-    const userIds = rows.map((r) => r.user_id).filter(Boolean);
+    if (!rows || rows.length === 0) { setParticipants([]); setParticipantRatings({}); setLoadingParticipants(false); return; }
+    const userIds = rows.map((r) => r.user_id).filter(Boolean) as string[];
     let profileMap: Record<string, { username: string; avatar_url: string | null; sports_interests: string[] }> = {};
     if (userIds.length > 0) {
-      const { data: profiles } = await supabase.from("profiles").select("id, username, avatar_url, sports_interests").in("id", userIds);
-      if (profiles) profiles.forEach((p) => { profileMap[p.id] = p; });
+      const [profilesRes, ratingsRes] = await Promise.all([
+        supabase.from("profiles").select("id, username, avatar_url, sports_interests").in("id", userIds),
+        supabase.from("ratings").select("rated_id, stars").in("rated_id", userIds),
+      ]);
+      if (profilesRes.data) profilesRes.data.forEach((p) => { profileMap[p.id] = p; });
+      const accum: Record<string, { sum: number; count: number }> = {};
+      ratingsRes.data?.forEach((r) => {
+        if (!accum[r.rated_id]) accum[r.rated_id] = { sum: 0, count: 0 };
+        accum[r.rated_id].sum += r.stars;
+        accum[r.rated_id].count++;
+      });
+      const newRatings: Record<string, string> = {};
+      userIds.forEach((id) => {
+        newRatings[id] = accum[id] ? (accum[id].sum / accum[id].count).toFixed(1) + "/4" : "—/4";
+      });
+      setParticipantRatings(newRatings);
     }
     setParticipants(rows.map((r) => {
       const profile = r.user_id ? profileMap[r.user_id] : null;
       return { user_name: r.user_name, profile_id: r.user_id ?? null, username: profile?.username ?? null, avatar_url: profile?.avatar_url ?? null, sports_interests: profile?.sports_interests ?? null };
     }));
     setLoadingParticipants(false);
+  }
+
+  async function openParticipantProfile(profile: Profile) {
+    setProfileInDetail(profile);
+    const { data } = await supabase.from("reviews").select("*").eq("profile_id", profile.id).order("created_at", { ascending: false });
+    setProfileInDetailReviews(data ?? []);
   }
 
   async function openProfile(profile: Profile) {
@@ -226,6 +269,55 @@ export default function HomeScreen() {
     setJoinedIds((prev) => { const next = new Set(prev); next.delete(game.id); return next; });
     fetchGames();
     fetchUpcoming();
+  }
+
+  function kickPlayer(gameId: string, userId: string, name: string) {
+    Alert.alert("Kick player?", `Remove ${name} from this game?`, [
+      { text: "Cancel", style: "cancel" },
+      { text: "Kick", style: "destructive", onPress: async () => {
+        const { error } = await supabase.from("game_participants").delete().eq("game_id", gameId).eq("user_id", userId);
+        if (error) { Alert.alert("Error", error.message); return; }
+        setParticipants((prev) => prev.filter((p) => p.profile_id !== userId));
+        fetchGames();
+      }},
+    ]);
+  }
+
+  async function openRateGame(game: Game) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { data: parts } = await supabase.from("game_participants").select("user_id").eq("game_id", game.id).neq("user_id", user.id);
+    const userIds = (parts ?? []).map((p) => p.user_id).filter(Boolean) as string[];
+    if (userIds.length === 0) {
+      await supabase.from("rated_game_completions").insert({ user_id: user.id, game_id: game.id });
+      fetchRatableGames();
+      return;
+    }
+    const { data: profiles } = await supabase.from("profiles").select("id, username, avatar_url, sports_interests").in("id", userIds);
+    setRateParticipants(profiles ?? []);
+    setRateGame(game);
+    setRatingSelections({});
+    setShowRateModal(true);
+  }
+
+  async function submitGameRatings() {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user || !rateGame) return;
+    setSubmittingGameRating(true);
+    const entries = Object.entries(ratingSelections).filter(([_, s]) => s > 0);
+    if (entries.length > 0) {
+      await supabase.from("ratings").upsert(
+        entries.map(([userId, stars]) => ({ rater_id: user.id, rated_id: userId, stars })),
+        { onConflict: "rater_id,rated_id" }
+      );
+    }
+    await supabase.from("rated_game_completions").insert({ user_id: user.id, game_id: rateGame.id });
+    setSubmittingGameRating(false);
+    setShowRateModal(false);
+    setRateGame(null);
+    setRateParticipants([]);
+    setRatingSelections({});
+    fetchRatableGames();
   }
 
   function deleteGame(game: Game) {
@@ -319,6 +411,27 @@ export default function HomeScreen() {
                 </View>
               )}
 
+              {ratableGames.length > 0 && (
+                <View style={styles.upcomingSection}>
+                  <Pressable style={styles.upcomingHeader} onPress={() => setShowRatableGames(!showRatableGames)}>
+                    <Text style={styles.upcomingTitle}>⭐ To Be Rated ({ratableGames.length})</Text>
+                    <Text style={styles.upcomingChevron}>{showRatableGames ? "▲" : "▼"}</Text>
+                  </Pressable>
+                  {showRatableGames && ratableGames.map((game) => (
+                    <Pressable key={game.id} style={styles.upcomingCard} onPress={() => openRateGame(game)}>
+                      <View style={styles.upcomingCardLeft}>
+                        <Text style={styles.upcomingSport}>{game.sport}</Text>
+                        <Text style={styles.upcomingLocation}>{game.location}</Text>
+                        <Text style={styles.upcomingTime}>{formatDate(game.start_time)}</Text>
+                      </View>
+                      <View style={styles.rateNowBtn}>
+                        <Text style={styles.rateNowBtnText}>Rate →</Text>
+                      </View>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
+
               <Text style={styles.sectionLabel}>Open games</Text>
               {loading && <ActivityIndicator style={{ marginTop: 32 }} />}
             </>
@@ -353,7 +466,8 @@ export default function HomeScreen() {
           <View style={styles.notifModal}>
             <Text style={styles.notifModalTitle}>🔔 New Notifications</Text>
             {notifications.map((n) => (
-              <View key={n.id} style={styles.notifItem}>
+              <View key={n.id} style={[styles.notifItem, n.type === "game_ended" && styles.notifItemRating]}>
+                {n.type === "game_ended" && <Text style={styles.notifTypeIcon}>⭐ Time to Rate</Text>}
                 <Text style={styles.notifMessage}>{n.message}</Text>
                 <Text style={styles.notifTime}>{new Date(n.created_at).toLocaleDateString()}</Text>
                 {n.type === "friend_request" && (
@@ -393,9 +507,11 @@ export default function HomeScreen() {
               <RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await fetchAllNotifications(); setRefreshing(false); }} />
             }
             renderItem={({ item: n }) => (
-              <View style={[styles.mailboxItem, n.is_read && styles.mailboxItemRead]}>
+              <View style={[styles.mailboxItem, n.is_read && styles.mailboxItemRead, n.type === "game_ended" && !n.is_read && styles.mailboxItemRating]}>
                 <View style={styles.mailboxItemRow}>
-                  <Text style={styles.mailboxDot}>{n.is_read ? "○" : "●"}</Text>
+                  <Text style={styles.mailboxDot}>
+                    {n.type === "game_ended" ? "⭐" : n.is_read ? "○" : "●"}
+                  </Text>
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.notifMessage, n.is_read && styles.notifMessageRead]}>{n.message}</Text>
                     <Text style={styles.notifTime}>{formatDate(n.created_at)}</Text>
@@ -452,6 +568,9 @@ export default function HomeScreen() {
                   </View>
                 )}
                 <Text style={styles.profileUsername}>{profileInDetail.username}</Text>
+                <Text style={styles.profileRatingDisplay}>
+                  ★ {participantRatings[profileInDetail.id] ?? "—/4"}
+                </Text>
               </View>
               <Text style={styles.sectionLabel}>Sports Interests</Text>
               <View style={styles.sportsRow}>
@@ -495,12 +614,9 @@ export default function HomeScreen() {
                   <Pressable
                     key={p.user_name}
                     style={styles.participantCard}
-                    onPress={async () => {
+                    onPress={() => {
                       if (!p.profile_id) return;
-                      const profile = { id: p.profile_id, username: p.username ?? p.user_name, avatar_url: p.avatar_url ?? null, sports_interests: p.sports_interests ?? [] };
-                      setProfileInDetail(profile);
-                      const { data } = await supabase.from("reviews").select("*").eq("profile_id", profile.id).order("created_at", { ascending: false });
-                      setProfileInDetailReviews(data ?? []);
+                      openParticipantProfile({ id: p.profile_id, username: p.username ?? p.user_name, avatar_url: p.avatar_url ?? null, sports_interests: p.sports_interests ?? [] });
                     }}
                   >
                     {p.avatar_url ? (
@@ -517,16 +633,70 @@ export default function HomeScreen() {
                           <Text style={styles.creatorBadge}>Host</Text>
                         )}
                       </View>
-                      {p.sports_interests && p.sports_interests.length > 0 && (
-                        <Text style={styles.participantSports} numberOfLines={1}>{p.sports_interests.join(" · ")}</Text>
-                      )}
+                      <View style={styles.participantRatingRow}>
+                        {p.sports_interests && p.sports_interests.length > 0 && (
+                          <Text style={styles.participantSports} numberOfLines={1}>{p.sports_interests.join(" · ")}</Text>
+                        )}
+                        {p.profile_id && (
+                          <Text style={styles.participantRating}>★ {participantRatings[p.profile_id] ?? "—/4"}</Text>
+                        )}
+                      </View>
                     </View>
-                    {p.profile_id && <Text style={styles.participantArrow}>›</Text>}
+                    {currentUserId === selectedGame?.created_by && p.profile_id !== currentUserId ? (
+                      <Pressable style={styles.kickBtn} onPress={(e) => { e.stopPropagation(); kickPlayer(selectedGame!.id, p.profile_id!, p.username ?? p.user_name); }}>
+                        <Text style={styles.kickBtnText}>Kick</Text>
+                      </Pressable>
+                    ) : (
+                      p.profile_id && <Text style={styles.participantArrow}>›</Text>
+                    )}
                   </Pressable>
                 ))
               )}
             </ScrollView>
           )}
+        </SafeAreaView>
+      </Modal>
+
+      {/* Rate Game Modal */}
+      <Modal visible={showRateModal} animationType="slide" presentationStyle="pageSheet">
+        <SafeAreaView style={styles.modalSafe}>
+          <View style={styles.modalHeader}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.modalTitle}>⭐ Rate Players</Text>
+              {rateGame && <Text style={styles.rateGameSubtitle}>{rateGame.sport} · {rateGame.location}</Text>}
+            </View>
+            <Pressable onPress={() => { setShowRateModal(false); setRateGame(null); setRateParticipants([]); setRatingSelections({}); }}>
+              <Text style={styles.modalClose}>✕</Text>
+            </Pressable>
+          </View>
+          <ScrollView contentContainerStyle={styles.modalContent}>
+            {rateParticipants.map((p) => (
+              <View key={p.id} style={styles.ratePlayerCard}>
+                <View style={styles.ratePlayerLeft}>
+                  {p.avatar_url ? (
+                    <Image source={{ uri: p.avatar_url }} style={styles.participantAvatar} />
+                  ) : (
+                    <View style={styles.participantAvatarPlaceholder}>
+                      <Text style={styles.participantAvatarText}>{p.username[0].toUpperCase()}</Text>
+                    </View>
+                  )}
+                  <Text style={styles.ratePlayerName}>{p.username}</Text>
+                </View>
+                <View style={styles.rateStarsRow}>
+                  {[1, 2, 3, 4].map((s) => (
+                    <Pressable key={s} onPress={() => setRatingSelections((prev) => ({ ...prev, [p.id]: prev[p.id] === s ? 0 : s }))}>
+                      <Text style={{ fontSize: 28, color: s <= (ratingSelections[p.id] ?? 0) ? "#f59e0b" : "#e0e0e0" }}>★</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+            ))}
+          </ScrollView>
+          <View style={styles.rateFooter}>
+            <Pressable style={styles.rateDoneBtn} onPress={submitGameRatings} disabled={submittingGameRating}>
+              <Text style={styles.rateDoneBtnText}>{submittingGameRating ? "Submitting..." : "Done Rating"}</Text>
+            </Pressable>
+          </View>
         </SafeAreaView>
       </Modal>
 
@@ -632,6 +802,9 @@ const styles = StyleSheet.create({
   notifMessage: { fontSize: 13, color: "#212121", lineHeight: 20, marginBottom: 4 },
   notifMessageRead: { color: "#9e9e9e" },
   notifTime: { fontSize: 11, color: "#9e9e9e" },
+  notifItemRating: { backgroundColor: "#fffbeb", borderColor: "#fde68a" },
+  notifTypeIcon: { fontSize: 12, fontWeight: "700", color: "#f59e0b", marginBottom: 4 },
+  mailboxItemRating: { backgroundColor: "#fffbeb", borderColor: "#fde68a" },
   notifDismissBtn: { backgroundColor: "#212121", borderRadius: 10, padding: 14, alignItems: "center", marginTop: 8 },
   notifDismissText: { color: "#fff", fontWeight: "600", fontSize: 14 },
   mailboxItem: { backgroundColor: "#fff3e0", borderRadius: 10, padding: 12, marginBottom: 10, borderWidth: 1, borderColor: "#ffe0b2" },
@@ -663,7 +836,22 @@ const styles = StyleSheet.create({
   participantNameRow: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 2 },
   participantName: { fontSize: 15, fontWeight: "600", color: "#212121" },
   creatorBadge: { fontSize: 11, fontWeight: "600", color: "#1565c0", backgroundColor: "#e3f2fd", paddingHorizontal: 7, paddingVertical: 2, borderRadius: 10 },
-  participantSports: { fontSize: 12, color: "#9e9e9e" },
+  participantRatingRow: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
+  participantSports: { fontSize: 12, color: "#9e9e9e", flex: 1 },
+  participantRating: { fontSize: 12, color: "#f59e0b", fontWeight: "600" },
+  kickBtn: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6, backgroundColor: "#fdecea", borderWidth: 1, borderColor: "#f5c6c6", marginLeft: 6 },
+  kickBtnText: { fontSize: 12, color: "#e53935", fontWeight: "600" },
+  profileRatingDisplay: { fontSize: 14, fontWeight: "600", color: "#f59e0b", marginTop: 4, marginBottom: 8 },
+  rateNowBtn: { paddingHorizontal: 12, paddingVertical: 6, backgroundColor: "#212121", borderRadius: 8 },
+  rateNowBtnText: { color: "#fff", fontSize: 12, fontWeight: "600" },
+  rateGameSubtitle: { fontSize: 12, color: "#9e9e9e", marginTop: 2 },
+  ratePlayerCard: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: "#fff", borderRadius: 12, borderWidth: 1, borderColor: "#e0e0e0", padding: 12, marginBottom: 10 },
+  ratePlayerLeft: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1 },
+  ratePlayerName: { fontSize: 15, fontWeight: "600", color: "#212121" },
+  rateStarsRow: { flexDirection: "row", gap: 4 },
+  rateFooter: { padding: 20, borderTopWidth: 1, borderTopColor: "#f0f0f0" },
+  rateDoneBtn: { backgroundColor: "#212121", borderRadius: 12, padding: 16, alignItems: "center" },
+  rateDoneBtnText: { color: "#fff", fontWeight: "700", fontSize: 15 },
   participantArrow: { fontSize: 20, color: "#bdbdbd" },
   profileHeader: { alignItems: "center", marginBottom: 24 },
   profileAvatar: { width: 80, height: 80, borderRadius: 40, marginBottom: 12 },

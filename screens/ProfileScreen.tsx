@@ -33,6 +33,14 @@ type Game = {
   current_players: number;
 };
 
+type Rating = {
+  id: string;
+  rater_id: string;
+  stars: number;
+  comment: string | null;
+  created_at: string;
+};
+
 type ModalType = "joined" | "created" | "friends" | null;
 
 export default function ProfileScreen() {
@@ -54,6 +62,13 @@ export default function ProfileScreen() {
   const [activeModal, setActiveModal] = useState<ModalType>(null);
   const [showReviews, setShowReviews] = useState(false);
   const [showFriendReviews, setShowFriendReviews] = useState(false);
+  const [ownRatings, setOwnRatings] = useState<Rating[]>([]);
+  const [friendRatings, setFriendRatings] = useState<Rating[]>([]);
+  const [myRatingForFriend, setMyRatingForFriend] = useState<Rating | null>(null);
+  const [canRateFriend, setCanRateFriend] = useState(false);
+  const [ratingStars, setRatingStars] = useState(0);
+  const [ratingComment, setRatingComment] = useState("");
+  const [submittingRating, setSubmittingRating] = useState(false);
 
   // Friend profile view state
   const [selectedFriend, setSelectedFriend] = useState<Profile | null>(null);
@@ -112,25 +127,64 @@ export default function ProfileScreen() {
     if (profiles) setFriends(profiles);
   }, []);
 
+  const fetchOwnRatings = useCallback(async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { data } = await supabase.from("ratings").select("*").eq("rated_id", user.id).order("created_at", { ascending: false });
+    if (data) setOwnRatings(data);
+  }, []);
+
   useEffect(() => {
     fetchProfile();
     fetchReviews();
     fetchStats();
     fetchFriends();
-  }, [fetchProfile, fetchReviews, fetchStats, fetchFriends]);
+    fetchOwnRatings();
+  }, [fetchProfile, fetchReviews, fetchStats, fetchFriends, fetchOwnRatings]);
 
   async function openFriendProfile(friend: Profile) {
     setLoadingFriend(true);
     setSelectedFriend(friend);
+    setFriendRatings([]);
+    setMyRatingForFriend(null);
+    setCanRateFriend(false);
+    setRatingStars(0);
+    setRatingComment("");
 
-    const { data: reviews } = await supabase.from("reviews").select("*").eq("profile_id", friend.id).order("created_at", { ascending: false });
-    if (reviews) setFriendReviews(reviews);
+    const { data: { user } } = await supabase.auth.getUser();
+
+    const [reviewsRes, ratingsRes] = await Promise.all([
+      supabase.from("reviews").select("*").eq("profile_id", friend.id).order("created_at", { ascending: false }),
+      supabase.from("ratings").select("*").eq("rated_id", friend.id).order("created_at", { ascending: false }),
+    ]);
+    if (reviewsRes.data) setFriendReviews(reviewsRes.data);
+    if (ratingsRes.data) {
+      setFriendRatings(ratingsRes.data);
+      if (user) {
+        const mine = ratingsRes.data.find((r) => r.rater_id === user.id) ?? null;
+        setMyRatingForFriend(mine);
+        if (mine) { setRatingStars(mine.stars); setRatingComment(mine.comment ?? ""); }
+      }
+    }
 
     const { data: participations } = await supabase.from("game_participants").select("game_id").eq("user_name", friend.username);
     if (participations && participations.length > 0) {
       const ids = participations.map((p) => p.game_id);
       const { data: games } = await supabase.from("games_with_counts").select("*").in("id", ids).eq("status", "open").gte("start_time", new Date().toISOString()).order("start_time", { ascending: true });
       if (games) setFriendUpcomingGames(games);
+
+      if (user) {
+        const { data: myParts } = await supabase.from("game_participants").select("game_id").eq("user_id", user.id);
+        if (myParts && myParts.length > 0) {
+          const myIds = myParts.map((p) => p.game_id);
+          const { data: friendParts } = await supabase.from("game_participants").select("game_id").eq("user_id", friend.id).in("game_id", myIds);
+          if (friendParts && friendParts.length > 0) {
+            const sharedIds = friendParts.map((p) => p.game_id);
+            const { data: completed } = await supabase.from("games").select("id").in("id", sharedIds).lte("start_time", new Date().toISOString()).limit(1);
+            setCanRateFriend((completed?.length ?? 0) > 0);
+          }
+        }
+      }
     } else {
       setFriendUpcomingGames([]);
     }
@@ -157,6 +211,22 @@ export default function ProfileScreen() {
     setFriendReviews([]);
     setFriendUpcomingGames([]);
     setFriendReviewText("");
+  }
+
+  async function submitRating() {
+    if (ratingStars === 0 || !selectedFriend) return;
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    setSubmittingRating(true);
+    const payload = { rater_id: user.id, rated_id: selectedFriend.id, stars: ratingStars, comment: ratingComment.trim() || null };
+    const { data, error } = myRatingForFriend
+      ? await supabase.from("ratings").update({ stars: ratingStars, comment: ratingComment.trim() || null }).eq("id", myRatingForFriend.id).select().single()
+      : await supabase.from("ratings").insert(payload).select().single();
+    setSubmittingRating(false);
+    if (error) { Alert.alert("Error", error.message); return; }
+    if (data) setMyRatingForFriend(data);
+    const { data: updated } = await supabase.from("ratings").select("*").eq("rated_id", selectedFriend.id).order("created_at", { ascending: false });
+    if (updated) setFriendRatings(updated);
   }
 
   async function submitFriendReview() {
@@ -239,6 +309,21 @@ export default function ProfileScreen() {
     return new Date(isoString).toLocaleDateString("en-SG", { weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
   }
 
+  function renderStars(count: number, size = 16) {
+    return (
+      <View style={{ flexDirection: "row", gap: 2 }}>
+        {[1, 2, 3, 4].map((s) => (
+          <Text key={s} style={{ fontSize: size, color: s <= count ? "#f59e0b" : "#e0e0e0" }}>★</Text>
+        ))}
+      </View>
+    );
+  }
+
+  function avgStars(ratings: Rating[]) {
+    if (ratings.length === 0) return null;
+    return (ratings.reduce((s, r) => s + r.stars, 0) / ratings.length).toFixed(1);
+  }
+
   if (loading) return <ActivityIndicator style={{ flex: 1 }} />;
 
   const isOwnProfile = currentUserId === profile?.id;
@@ -278,7 +363,12 @@ export default function ProfileScreen() {
           {editing ? (
             <TextInput style={styles.usernameInput} value={username} onChangeText={setUsername} autoFocus />
           ) : (
-            <Text style={styles.username}>{profile?.username}</Text>
+            <View style={styles.usernameRow}>
+              <Text style={styles.username}>{profile?.username}</Text>
+              <Text style={styles.usernameRating}>
+                {ownRatings.length > 0 ? `★ ${avgStars(ownRatings)}/4` : "★ —/4"}
+              </Text>
+            </View>
           )}
           {isOwnProfile && (
             <Pressable style={styles.editBtn} onPress={editing ? saveProfile : () => setEditing(true)}>
@@ -434,10 +524,10 @@ export default function ProfileScreen() {
       <Modal visible={selectedFriend !== null} animationType="slide" presentationStyle="pageSheet">
         <SafeAreaView style={styles.modalSafe}>
           <View style={styles.modalHeader}>
-            <Pressable onPress={() => { setSelectedFriend(null); setFriendReviews([]); setFriendUpcomingGames([]); setFriendReviewText(""); setShowFriendReviews(false); }} style={{ flex: 1 }}>
+            <Pressable onPress={() => { setSelectedFriend(null); setFriendReviews([]); setFriendRatings([]); setFriendUpcomingGames([]); setFriendReviewText(""); setShowFriendReviews(false); setRatingStars(0); setRatingComment(""); }} style={{ flex: 1 }}>
               <Text style={styles.backBtnText}>‹ Friends</Text>
             </Pressable>
-            <Pressable onPress={() => { setSelectedFriend(null); setActiveModal(null); setFriendReviews([]); setFriendUpcomingGames([]); setFriendReviewText(""); setShowFriendReviews(false); }}>
+            <Pressable onPress={() => { setSelectedFriend(null); setActiveModal(null); setFriendReviews([]); setFriendRatings([]); setFriendUpcomingGames([]); setFriendReviewText(""); setShowFriendReviews(false); setRatingStars(0); setRatingComment(""); }}>
               <Text style={styles.modalClose}>✕</Text>
             </Pressable>
           </View>
@@ -454,7 +544,12 @@ export default function ProfileScreen() {
                     <Text style={styles.friendProfileAvatarText}>{(selectedFriend?.username ?? "?")[0].toUpperCase()}</Text>
                   </View>
                 )}
-                <Text style={styles.friendProfileUsername}>{selectedFriend?.username}</Text>
+                <View style={styles.usernameRow}>
+                  <Text style={styles.friendProfileUsername}>{selectedFriend?.username}</Text>
+                  <Text style={styles.usernameRating}>
+                    {friendRatings.length > 0 ? `★ ${avgStars(friendRatings)}/4` : "★ —/4"}
+                  </Text>
+                </View>
                 {selectedFriend && (
                   <Pressable style={styles.removeFriendBtn} onPress={() => confirmRemoveFriend(selectedFriend)}>
                     <Text style={styles.removeFriendBtnText}>Remove friend</Text>
@@ -490,6 +585,25 @@ export default function ProfileScreen() {
                     <Text style={styles.gameCardMeta}>{game.current_players}/{game.max_players} players · {game.skill_level}</Text>
                   </View>
                 ))
+              )}
+
+              {canRateFriend && (
+                <>
+                  <Text style={styles.sectionLabel}>{myRatingForFriend ? "Your Rating" : "To Be Rated"}</Text>
+                  <View style={styles.starSelector}>
+                    {[1, 2, 3, 4].map((s) => (
+                      <Pressable key={s} onPress={() => setRatingStars(s)}>
+                        <Text style={[styles.starBtn, { color: s <= ratingStars ? "#f59e0b" : "#e0e0e0" }]}>★</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                  <View style={styles.reviewInputRow}>
+                    <TextInput style={styles.reviewInput} placeholder="Write a review (optional)..." value={ratingComment} onChangeText={setRatingComment} multiline />
+                    <Pressable style={[styles.reviewSubmitBtn, ratingStars === 0 && styles.reviewSubmitBtnDisabled]} onPress={submitRating} disabled={submittingRating || ratingStars === 0}>
+                      <Text style={styles.reviewSubmitText}>{myRatingForFriend ? "Update" : "Submit"}</Text>
+                    </Pressable>
+                  </View>
+                </>
               )}
 
               <Text style={styles.sectionLabel}>Leave a Review</Text>
@@ -537,7 +651,9 @@ const styles = StyleSheet.create({
   avatarText: { fontSize: 32, fontWeight: "700", color: "#fff" },
   avatarOverlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, borderRadius: 40, backgroundColor: "rgba(0,0,0,0.4)", alignItems: "center", justifyContent: "center" },
   avatarOverlayText: { fontSize: 24 },
-  username: { fontSize: 20, fontWeight: "700", color: "#212121", marginBottom: 12 },
+  usernameRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 },
+  username: { fontSize: 20, fontWeight: "700", color: "#212121" },
+  usernameRating: { fontSize: 13, fontWeight: "600", color: "#f59e0b" },
   usernameInput: { fontSize: 20, fontWeight: "700", color: "#212121", borderBottomWidth: 2, borderBottomColor: "#212121", marginBottom: 12, minWidth: 150, textAlign: "center" },
   editBtn: { paddingHorizontal: 16, paddingVertical: 7, borderRadius: 8, borderWidth: 1, borderColor: "#212121" },
   editBtnText: { fontSize: 13, fontWeight: "500", color: "#212121" },
@@ -582,6 +698,14 @@ const styles = StyleSheet.create({
   friendProfileUsername: { fontSize: 20, fontWeight: "700", color: "#212121", marginBottom: 10 },
   removeFriendBtn: { paddingHorizontal: 16, paddingVertical: 7, borderRadius: 8, borderWidth: 1, borderColor: "#e0e0e0", backgroundColor: "#fff" },
   removeFriendBtnText: { fontSize: 13, fontWeight: "600", color: "#e53935" },
+  ratingHeaderLeft: { flexDirection: "row", alignItems: "center", gap: 8 },
+  avgStarsText: { fontSize: 13, fontWeight: "600", color: "#f59e0b" },
+  ratingCard: { backgroundColor: "#fff", borderRadius: 12, borderWidth: 1, borderColor: "#e0e0e0", padding: 12, marginBottom: 10 },
+  ratingCardHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 6 },
+  ratingDate: { fontSize: 11, color: "#9e9e9e" },
+  ratingComment: { fontSize: 13, color: "#424242", lineHeight: 20 },
+  starSelector: { flexDirection: "row", gap: 8, marginBottom: 12 },
+  starBtn: { fontSize: 32 },
   backBtnText: { fontSize: 16, color: "#212121", fontWeight: "500" },
   signOutBtn: { marginTop: 32, paddingVertical: 14, borderRadius: 12, borderWidth: 1, borderColor: "#e0e0e0", alignItems: "center", backgroundColor: "#fff" },
   signOutText: { fontSize: 14, fontWeight: "600", color: "#e53935" },
