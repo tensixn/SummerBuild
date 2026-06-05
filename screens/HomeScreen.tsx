@@ -133,7 +133,7 @@ export default function HomeScreen() {
     const completedIds = new Set(completions?.map((c) => c.game_id) ?? []);
     const pendingIds = gameIds.filter((id) => !completedIds.has(id));
     if (pendingIds.length === 0) { setRatableGames([]); return; }
-    const { data: games } = await supabase.from("games_with_counts").select("*").in("id", pendingIds).lte("start_time", new Date().toISOString()).eq("status", "open").order("start_time", { ascending: false });
+    const { data: games } = await supabase.from("games_with_counts").select("*").in("id", pendingIds).lte("start_time", new Date().toISOString()).eq("status", "closed").order("start_time", { ascending: false });
     setRatableGames(games ?? []);
   }, []);
 
