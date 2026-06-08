@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   View, Text, ScrollView, Pressable, TextInput, Modal,
-  StyleSheet, SafeAreaView, Alert, ActivityIndicator, Image, FlatList,
+  StyleSheet, SafeAreaView, Alert, ActivityIndicator, Image, FlatList, RefreshControl,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { supabase } from "../lib/supabase";
@@ -71,11 +71,13 @@ export default function ProfileScreen() {
   const [ratingComment, setRatingComment] = useState("");
   const [submittingRating, setSubmittingRating] = useState(false);
   const [recentlyAbandoned, setRecentlyAbandoned] = useState(false);
+  const [abandonedCount, setAbandonedCount] = useState(0);
   const [showSettings, setShowSettings] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [changingPassword, setChangingPassword] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   // Friend profile view state
   const [selectedFriend, setSelectedFriend] = useState<Profile | null>(null);
@@ -96,6 +98,7 @@ export default function ProfileScreen() {
       setSelectedSports(data.sports_interests ?? []);
       setAvatarUri(data.avatar_url ?? null);
       setRecentlyAbandoned(!!data.recently_abandoned_at);
+      setAbandonedCount(data.abandoned_count ?? 0);
     } else {
       const newProfile = { id: user.id, username: user.email?.split("@")[0] ?? "Player", sports_interests: [], avatar_url: null };
       await supabase.from("profiles").insert(newProfile);
@@ -149,6 +152,12 @@ export default function ProfileScreen() {
     fetchFriends();
     fetchOwnRatings();
   }, [fetchProfile, fetchReviews, fetchStats, fetchFriends, fetchOwnRatings]);
+
+  async function onRefresh() {
+    setRefreshing(true);
+    await Promise.all([fetchProfile(), fetchReviews(), fetchStats(), fetchFriends(), fetchOwnRatings()]);
+    setRefreshing(false);
+  }
 
   async function openFriendProfile(friend: Profile) {
     setLoadingFriend(true);
@@ -364,7 +373,11 @@ export default function ProfileScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.container}
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      >
 
         <View style={styles.header}>
           <Pressable onPress={editing ? pickImage : undefined} style={styles.avatarWrapper}>
@@ -384,19 +397,17 @@ export default function ProfileScreen() {
           {editing ? (
             <TextInput style={styles.usernameInput} value={username} onChangeText={setUsername} autoFocus />
           ) : (
-            <>
-              <View style={styles.usernameRow}>
-                <Text style={styles.username}>{profile?.username}</Text>
-                <Text style={styles.usernameRating}>
-                  {ownRatings.length > 0 ? `★ ${avgStars(ownRatings)}/4` : "★ —/4"}
-                </Text>
-              </View>
+            <View style={styles.usernameRow}>
+              <Text style={styles.username}>{profile?.username}</Text>
+              <Text style={styles.usernameRating}>
+                {ownRatings.length > 0 ? `★ ${avgStars(ownRatings)}/4` : "★ —/4"}
+              </Text>
               {recentlyAbandoned && (
                 <View style={styles.abandonedBadge}>
                   <Text style={styles.abandonedBadgeText}>Recently Abandoned</Text>
                 </View>
               )}
-            </>
+            </View>
           )}
           {isOwnProfile && (
             <Pressable style={styles.editBtn} onPress={editing ? saveProfile : () => setEditing(true)}>
@@ -419,6 +430,11 @@ export default function ProfileScreen() {
           <View style={styles.statBox}>
             <Text style={styles.statNum}>{reviews.length}</Text>
             <Text style={styles.statLabel}>Reviews</Text>
+          </View>
+          <View style={styles.statDivider} />
+          <View style={styles.statBox}>
+            <Text style={[styles.statNum, abandonedCount > 0 && styles.statNumAbandoned]}>{abandonedCount}</Text>
+            <Text style={styles.statLabel}>Abandoned</Text>
           </View>
           <View style={styles.statDivider} />
           <Pressable style={styles.statBox} onPress={() => setActiveModal("friends")}>
@@ -758,6 +774,7 @@ const styles = StyleSheet.create({
   statsRow: { flexDirection: "row", backgroundColor: "#fff", borderRadius: 14, borderWidth: 1, borderColor: "#e0e0e0", marginBottom: 24, paddingVertical: 16 },
   statBox: { flex: 1, alignItems: "center" },
   statNum: { fontSize: 22, fontWeight: "700", color: "#212121" },
+  statNumAbandoned: { color: "#e65100" },
   statLabel: { fontSize: 11, color: "#9e9e9e", marginTop: 2 },
   statDivider: { width: 1, backgroundColor: "#e0e0e0" },
   collapsibleHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 20, marginBottom: 12 },
@@ -808,7 +825,7 @@ const styles = StyleSheet.create({
   signOutBtn: { marginTop: 32, paddingVertical: 14, borderRadius: 12, borderWidth: 1, borderColor: "#e0e0e0", alignItems: "center", backgroundColor: "#fff" },
   signOutText: { fontSize: 14, fontWeight: "600", color: "#e53935" },
   settingsChangePasswordText: { fontSize: 14, fontWeight: "600", color: "#212121" },
-  abandonedBadge: { backgroundColor: "#fff3e0", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, borderWidth: 1, borderColor: "#ff9800", marginTop: 6 },
+  abandonedBadge: { backgroundColor: "#fff3e0", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, borderWidth: 1, borderColor: "#ff9800" },
   abandonedBadgeText: { fontSize: 11, color: "#e65100", fontWeight: "700" },
   settingsCard: { margin: 20, backgroundColor: "#fff", borderRadius: 12, borderWidth: 1, borderColor: "#e0e0e0", overflow: "hidden" },
   settingsRow: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 16 },

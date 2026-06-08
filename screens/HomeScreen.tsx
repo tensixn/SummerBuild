@@ -69,6 +69,7 @@ export default function HomeScreen() {
   const [submittingReview, setSubmittingReview] = useState(false);
   const [profileInDetail, setProfileInDetail] = useState<Profile | null>(null);
   const [profileInDetailReviews, setProfileInDetailReviews] = useState<Review[]>([]);
+  const [profileInDetailStats, setProfileInDetailStats] = useState<{ joined: number; created: number; abandoned: number } | null>(null);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [allNotifications, setAllNotifications] = useState<Notification[]>([]);
   const [showNotifModal, setShowNotifModal] = useState(false);
@@ -156,6 +157,13 @@ export default function HomeScreen() {
     if (!user) return;
     const { data: profile } = await supabase.from("profiles").select("recently_abandoned_at").eq("id", user.id).single();
     if (!profile?.recently_abandoned_at) return;
+    // Clear if 24 hours have passed
+    const hoursElapsed = (Date.now() - new Date(profile.recently_abandoned_at).getTime()) / 3600000;
+    if (hoursElapsed >= 24) {
+      await supabase.from("profiles").update({ recently_abandoned_at: null }).eq("id", user.id);
+      return;
+    }
+    // Clear if user completed a game after the abandonment
     const { data: parts } = await supabase.from("game_participants").select("game_id").eq("user_id", user.id);
     if (!parts || parts.length === 0) return;
     const gameIds = parts.map((p) => p.game_id);
@@ -268,8 +276,19 @@ export default function HomeScreen() {
 
   async function openParticipantProfile(profile: Profile) {
     setProfileInDetail(profile);
-    const { data } = await supabase.from("reviews").select("*").eq("profile_id", profile.id).order("created_at", { ascending: false });
-    setProfileInDetailReviews(data ?? []);
+    setProfileInDetailStats(null);
+    const [reviewsRes, joinedRes, createdRes, profileRes] = await Promise.all([
+      supabase.from("reviews").select("*").eq("profile_id", profile.id).order("created_at", { ascending: false }),
+      supabase.from("game_participants").select("*", { count: "exact", head: true }).eq("user_id", profile.id),
+      supabase.from("games").select("*", { count: "exact", head: true }).eq("created_by", profile.id),
+      supabase.from("profiles").select("abandoned_count").eq("id", profile.id).single(),
+    ]);
+    setProfileInDetailReviews(reviewsRes.data ?? []);
+    setProfileInDetailStats({
+      joined: joinedRes.count ?? 0,
+      created: createdRes.count ?? 0,
+      abandoned: profileRes.data?.abandoned_count ?? 0,
+    });
   }
 
   async function openProfile(profile: Profile) {
@@ -312,7 +331,9 @@ export default function HomeScreen() {
     setJoinedIds((prev) => { const next = new Set(prev); next.delete(game.id); return next; });
     const minsUntilStart = (new Date(game.start_time).getTime() - Date.now()) / 60000;
     if (minsUntilStart >= 0 && minsUntilStart <= 60) {
-      await supabase.from("profiles").update({ recently_abandoned_at: new Date().toISOString() }).eq("id", user.id);
+      const { data: pd } = await supabase.from("profiles").select("abandoned_count").eq("id", user.id).single();
+      const { error: updateErr } = await supabase.from("profiles").update({ recently_abandoned_at: new Date().toISOString(), abandoned_count: (pd?.abandoned_count ?? 0) + 1 }).eq("id", user.id);
+      if (updateErr) Alert.alert("Error updating profile", updateErr.message);
     }
     fetchGames();
     fetchUpcoming();
@@ -807,6 +828,22 @@ export default function HomeScreen() {
                   </View>
                 )}
               </View>
+              <View style={styles.profileStatsRow}>
+                <View style={styles.profileStatItem}>
+                  <Text style={styles.profileStatNum}>{profileInDetailStats?.joined ?? "—"}</Text>
+                  <Text style={styles.profileStatLabel}>Joined</Text>
+                </View>
+                <View style={styles.profileStatDivider} />
+                <View style={styles.profileStatItem}>
+                  <Text style={styles.profileStatNum}>{profileInDetailStats?.created ?? "—"}</Text>
+                  <Text style={styles.profileStatLabel}>Created</Text>
+                </View>
+                <View style={styles.profileStatDivider} />
+                <View style={styles.profileStatItem}>
+                  <Text style={[styles.profileStatNum, (profileInDetailStats?.abandoned ?? 0) > 0 && styles.profileStatNumAbandoned]}>{profileInDetailStats?.abandoned ?? "—"}</Text>
+                  <Text style={styles.profileStatLabel}>Abandoned</Text>
+                </View>
+              </View>
               <Text style={styles.sectionLabel}>Sports Interests</Text>
               <View style={styles.sportsRow}>
                 {profileInDetail.sports_interests.length > 0 ? (
@@ -917,7 +954,8 @@ export default function HomeScreen() {
             <View style={styles.leaveHowToBox}>
               <Text style={styles.leaveHowToTitle}>How to remove the badge</Text>
               <Text style={styles.leaveHowToText}>
-                Join another game and complete it. The badge disappears automatically once the game ends.
+                <Text style={styles.leaveHowToBullet}>• </Text>Join another game and complete it.{"\n"}
+                <Text style={styles.leaveHowToBullet}>• </Text>Wait 24 hours — the badge clears automatically.
               </Text>
             </View>
 
@@ -1161,6 +1199,12 @@ const styles = StyleSheet.create({
   reviewComment: { fontSize: 13, color: "#424242", lineHeight: 20 },
   abandonedBadge: { backgroundColor: "#fff3e0", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, borderWidth: 1, borderColor: "#ff9800" },
   abandonedBadgeText: { fontSize: 10, color: "#e65100", fontWeight: "700" },
+  profileStatsRow: { flexDirection: "row", justifyContent: "center", alignItems: "center", backgroundColor: "#f9f9f9", borderRadius: 12, paddingVertical: 14, marginBottom: 20, marginTop: 4 },
+  profileStatItem: { flex: 1, alignItems: "center" },
+  profileStatNum: { fontSize: 20, fontWeight: "700", color: "#212121" },
+  profileStatNumAbandoned: { color: "#e65100" },
+  profileStatLabel: { fontSize: 11, color: "#9e9e9e", marginTop: 2 },
+  profileStatDivider: { width: 1, height: 32, backgroundColor: "#e0e0e0" },
   leaveOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.55)", justifyContent: "center", alignItems: "center", padding: 24 },
   leaveModal: { backgroundColor: "#fff", borderRadius: 18, padding: 24, width: "100%" },
   leaveModalTitle: { fontSize: 20, fontWeight: "700", color: "#212121", marginBottom: 4 },
@@ -1171,7 +1215,8 @@ const styles = StyleSheet.create({
   leaveWarningBold: { fontWeight: "700", color: "#e65100" },
   leaveHowToBox: { backgroundColor: "#f5f5f5", borderRadius: 12, padding: 14, marginBottom: 24 },
   leaveHowToTitle: { fontSize: 13, fontWeight: "700", color: "#424242", marginBottom: 4 },
-  leaveHowToText: { fontSize: 13, color: "#757575", lineHeight: 19 },
+  leaveHowToText: { fontSize: 13, color: "#757575", lineHeight: 22 },
+  leaveHowToBullet: { fontWeight: "700", color: "#e65100" },
   leaveModalBtns: { flexDirection: "row", gap: 10 },
   leaveStayBtn: { flex: 1, paddingVertical: 14, borderRadius: 12, borderWidth: 1, borderColor: "#e0e0e0", alignItems: "center", backgroundColor: "#fff" },
   leaveStayBtnText: { fontSize: 14, fontWeight: "600", color: "#212121" },
