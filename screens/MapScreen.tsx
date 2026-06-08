@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import {
   View, Text, StyleSheet, Alert, Pressable,
-  ActivityIndicator, ScrollView, Animated, Dimensions, FlatList,
+  ScrollView, Animated, Dimensions,
 } from "react-native";
 import MapView, { Marker, Circle, PROVIDER_DEFAULT } from "react-native-maps";
 import * as Location from "expo-location";
@@ -105,7 +105,7 @@ export default function MapScreen() {
     if (!user) return;
     const { data } = await supabase
       .from("game_participants").select("game_id").eq("user_name", user.email);
-    if (data) setJoinedIds(new Set(data.map((r) => r.game_id)));
+    if (data) setJoinedIds(new Set(data.map((r: any) => r.game_id)));
   }, []);
 
   useEffect(() => {
@@ -232,9 +232,6 @@ export default function MapScreen() {
           const hasGame = activeCourtIds.has(court.id);
           const courtFilteredGames = filteredGames.filter(g => findCourt(g.location)?.id === court.id);
           const totalPlayers = courtFilteredGames.reduce((sum, g) => sum + g.current_players, 0);
-          const emoji = courtFilteredGames.length > 0
-            ? SPORT_EMOJI[courtFilteredGames[0].sport] ?? "⚡"
-            : null;
 
           return (
             <Marker

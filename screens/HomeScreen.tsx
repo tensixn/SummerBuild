@@ -1,8 +1,9 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import {
   View, Text, FlatList, Pressable, ActivityIndicator,
-  Alert, StyleSheet, SafeAreaView, Modal, ScrollView, Image, TextInput, RefreshControl,
+  Alert, StyleSheet, Modal, ScrollView, Image, TextInput, RefreshControl,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "../lib/supabase";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Game, Sport, SPORTS } from "../lib/types";
@@ -122,7 +123,7 @@ export default function HomeScreen() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
     const { data } = await supabase.from("game_participants").select("game_id").eq("user_name", user.email);
-    if (data) setJoinedIds(new Set(data.map((r) => r.game_id)));
+    if (data) setJoinedIds(new Set(data.map((r: any) => r.game_id)));
   }, []);
 
 
@@ -132,7 +133,7 @@ export default function HomeScreen() {
     const { data } = await supabase.from("notifications").select("*").eq("user_email", user.email).eq("is_read", false).order("created_at", { ascending: false });
     if (data && data.length > 0) {
       setNotifications(data);
-      if (data.some((n) => n.type !== "friend_request")) setShowNotifModal(true);
+      if (data.some((n: any) => n.type !== "friend_request")) setShowNotifModal(true);
     }
   }, []);
 
@@ -148,10 +149,10 @@ export default function HomeScreen() {
     if (!user) return;
     const { data: myParts } = await supabase.from("game_participants").select("game_id").eq("user_id", user.id);
     if (!myParts || myParts.length === 0) { setRatableGames([]); return; }
-    const gameIds = myParts.map((p) => p.game_id);
+    const gameIds = myParts.map((p: any) => p.game_id);
     const { data: completions } = await supabase.from("rated_game_completions").select("game_id").eq("user_id", user.id).in("game_id", gameIds);
-    const completedIds = new Set(completions?.map((c) => c.game_id) ?? []);
-    const pendingIds = gameIds.filter((id) => !completedIds.has(id));
+    const completedIds = new Set(completions?.map((c: any) => c.game_id) ?? []);
+    const pendingIds = gameIds.filter((id: string) => !completedIds.has(id));
     if (pendingIds.length === 0) { setRatableGames([]); return; }
     const { data: games } = await supabase.from("games_with_counts").select("*").in("id", pendingIds).lte("start_time", new Date().toISOString()).eq("status", "closed").order("start_time", { ascending: false });
     setRatableGames(games ?? []);
@@ -171,7 +172,7 @@ export default function HomeScreen() {
     // Clear if user completed a game after the abandonment
     const { data: parts } = await supabase.from("game_participants").select("game_id").eq("user_id", user.id);
     if (!parts || parts.length === 0) return;
-    const gameIds = parts.map((p) => p.game_id);
+    const gameIds = parts.map((p: any) => p.game_id);
     const { data: completedAfter } = await supabase.from("games").select("id").in("id", gameIds).eq("status", "closed").gt("start_time", profile.recently_abandoned_at).limit(1);
     if (completedAfter && completedAfter.length > 0) {
       await supabase.from("profiles").update({ recently_abandoned_at: null }).eq("id", user.id);
@@ -300,16 +301,16 @@ export default function HomeScreen() {
     setLoadingParticipants(true);
     const { data: rows } = await supabase.from("game_participants").select("user_name, user_id").eq("game_id", game.id);
     if (!rows || rows.length === 0) { setParticipants([]); setParticipantRatings({}); setLoadingParticipants(false); return; }
-    const userIds = rows.map((r) => r.user_id).filter(Boolean) as string[];
+    const userIds = rows.map((r: any) => r.user_id).filter(Boolean) as string[];
     let profileMap: Record<string, { username: string; avatar_url: string | null; sports_interests: string[]; recently_abandoned_at: string | null }> = {};
     if (userIds.length > 0) {
       const [profilesRes, ratingsRes] = await Promise.all([
         supabase.from("profiles").select("id, username, avatar_url, sports_interests, recently_abandoned_at").in("id", userIds),
         supabase.from("ratings").select("rated_id, stars").in("rated_id", userIds),
       ]);
-      if (profilesRes.data) profilesRes.data.forEach((p) => { profileMap[p.id] = p; });
+      if (profilesRes.data) profilesRes.data.forEach((p: any) => { profileMap[p.id] = p; });
       const accum: Record<string, { sum: number; count: number }> = {};
-      ratingsRes.data?.forEach((r) => {
+      ratingsRes.data?.forEach((r: any) => {
         if (!accum[r.rated_id]) accum[r.rated_id] = { sum: 0, count: 0 };
         accum[r.rated_id].sum += r.stars;
         accum[r.rated_id].count++;
@@ -320,7 +321,7 @@ export default function HomeScreen() {
       });
       setParticipantRatings(newRatings);
     }
-    setParticipants(rows.map((r) => {
+    setParticipants(rows.map((r: any) => {
       const profile = r.user_id ? profileMap[r.user_id] : null;
       return { user_name: r.user_name, profile_id: r.user_id ?? null, username: profile?.username ?? null, avatar_url: profile?.avatar_url ?? null, sports_interests: profile?.sports_interests ?? null, recently_abandoned_at: profile?.recently_abandoned_at ?? null };
     }));
@@ -419,7 +420,7 @@ export default function HomeScreen() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
     const { data: parts } = await supabase.from("game_participants").select("user_id").eq("game_id", game.id).neq("user_id", user.id);
-    const userIds = (parts ?? []).map((p) => p.user_id).filter(Boolean) as string[];
+    const userIds = (parts ?? []).map((p: any) => p.user_id).filter(Boolean) as string[];
     if (userIds.length === 0) {
       await supabase.from("rated_game_completions").insert({ user_id: user.id, game_id: game.id });
       fetchRatableGames();
