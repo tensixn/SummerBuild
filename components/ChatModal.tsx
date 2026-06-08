@@ -35,6 +35,7 @@ export default function ChatModal({ visible, onClose, gameId, gameTitle }: Props
   const [isParticipant, setIsParticipant] = useState(false);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [deletedUserIds, setDeletedUserIds] = useState<Set<string>>(new Set());
   const listRef = useRef<FlatList>(null);
 
   useEffect(() => {
@@ -58,6 +59,18 @@ export default function ChatModal({ visible, onClose, gameId, gameTitle }: Props
       setCurrentUsername(profile?.username ?? user.email?.split("@")[0] ?? "Player");
       setIsParticipant(!!participation);
       setMessages(msgs ?? []);
+
+      if (msgs && msgs.length > 0) {
+        const otherIds = [...new Set((msgs as Message[]).map((m) => m.user_id))].filter((id) => id !== user.id);
+        if (otherIds.length > 0) {
+          const { data: activeProfiles } = await supabase.from("profiles").select("id").in("id", otherIds);
+          if (active) {
+            const activeSet = new Set((activeProfiles ?? []).map((p: { id: string }) => p.id));
+            setDeletedUserIds(new Set(otherIds.filter((id) => !activeSet.has(id))));
+          }
+        }
+      }
+
       setLoading(false);
     })();
 
@@ -118,17 +131,19 @@ export default function ChatModal({ visible, onClose, gameId, gameTitle }: Props
 
   function renderMessage({ item, index }: { item: Message; index: number }) {
     const isOwn = item.user_id === currentUserId;
+    const isDeleted = !isOwn && deletedUserIds.has(item.user_id);
+    const displayName = isDeleted ? "Deleted User" : item.username;
     const showName = !isOwn && messages[index - 1]?.user_id !== item.user_id;
 
     return (
       <View style={[styles.msgRow, isOwn ? styles.msgRowOwn : styles.msgRowOther]}>
         {!isOwn && (
-          <View style={[styles.avatar, !showName && styles.avatarHidden]}>
-            <Text style={styles.avatarText}>{item.username[0]?.toUpperCase()}</Text>
+          <View style={[styles.avatar, !showName && styles.avatarHidden, isDeleted && styles.avatarDeleted]}>
+            {!isDeleted && <Text style={styles.avatarText}>{item.username[0]?.toUpperCase()}</Text>}
           </View>
         )}
         <View style={[styles.bubbleWrap, isOwn && styles.bubbleWrapOwn]}>
-          {showName && <Text style={styles.senderName}>{item.username}</Text>}
+          {showName && <Text style={[styles.senderName, isDeleted && styles.deletedName]}>{displayName}</Text>}
           <View style={[styles.bubble, isOwn ? styles.bubbleOwn : styles.bubbleOther]}>
             <Text style={isOwn ? styles.msgTextOwn : styles.msgTextOther}>{item.message}</Text>
           </View>
@@ -243,7 +258,9 @@ function makeStyles(c: Colors) {
       marginRight: 8, flexShrink: 0,
     },
     avatarHidden: { opacity: 0 },
+    avatarDeleted: { backgroundColor: "#9e9e9e" },
     avatarText: { fontSize: 12, fontWeight: "700", color: "#fff" },
+    deletedName: { fontStyle: "italic" },
     bubbleWrap: { maxWidth: "72%", alignItems: "flex-start" },
     bubbleWrapOwn: { alignItems: "flex-end" },
     senderName: { fontSize: 11, color: c.textFaint, marginBottom: 3, marginLeft: 4 },

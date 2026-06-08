@@ -370,6 +370,38 @@ export default function ProfileScreen() {
     return bytes;
   }
 
+  function confirmDeleteAccount() {
+    Alert.alert(
+      "Delete Account",
+      "This will permanently delete your account and all your data. This cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () =>
+            Alert.alert(
+              "Are you sure?",
+              "Your profile, reviews, and game history will be deleted forever.",
+              [
+                { text: "Cancel", style: "cancel" },
+                { text: "Yes, delete my account", style: "destructive", onPress: deleteAccount },
+              ]
+            ),
+        },
+      ]
+    );
+  }
+
+  async function deleteAccount() {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    setShowSettings(false);
+    await supabase.from("profiles").delete().eq("id", user.id);
+    await supabase.rpc("delete_user");
+    await supabase.auth.signOut();
+  }
+
   async function changePassword() {
     if (newPassword.length < 6) { Alert.alert("Too short", "Password must be at least 6 characters."); return; }
     if (newPassword !== confirmPassword) { Alert.alert("Mismatch", "Passwords do not match."); return; }
@@ -622,6 +654,9 @@ export default function ProfileScreen() {
               <Text style={styles.settingsRowLabel}>Dark mode</Text>
               <Switch value={isDark} onValueChange={toggle} trackColor={{ false: "#e0e0e0", true: "#4caf50" }} thumbColor="#fff" />
             </View>
+            <Pressable style={[styles.settingsRow, styles.settingsRowBorder]} onPress={confirmDeleteAccount}>
+              <Text style={styles.deleteAccountLabel}>Delete account</Text>
+            </Pressable>
           </View>
         </SafeAreaView>
       </Modal>
@@ -938,6 +973,7 @@ function makeStyles(c: Colors) { return StyleSheet.create({
   settingsRow: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 16 },
   settingsRowBorder: { borderTopWidth: 1, borderTopColor: c.borderLight },
   settingsRowLabel: { flex: 1, fontSize: 15, color: c.text },
+  deleteAccountLabel: { flex: 1, fontSize: 15, color: "#e53935", fontWeight: "600" },
   settingsRowArrow: { fontSize: 20, color: c.placeholder },
   pwLabel: { fontSize: 12, fontWeight: "600", color: c.textFaint, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8, marginTop: 4 },
   pwInput: { backgroundColor: c.input, borderWidth: 1, borderColor: c.border, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: c.text, marginBottom: 20 },
