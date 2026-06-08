@@ -1,12 +1,15 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import {
   View, Text, FlatList, Pressable, ActivityIndicator,
   Alert, StyleSheet, SafeAreaView, Modal, ScrollView, Image, TextInput, RefreshControl,
 } from "react-native";
 import { supabase } from "../lib/supabase";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Game, Sport, SPORTS } from "../lib/types";
 import GameCard from "../components/GameCard";
 import CreateGameModal from "../components/CreateGameModal";
+import ChatModal from "../components/ChatModal";
+import { useTheme, Colors } from "../lib/theme";
 
 type Participant = {
   user_name: string;
@@ -42,14 +45,25 @@ type Notification = {
 };
 
 export default function HomeScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const [games, setGames] = useState<Game[]>([]);
   const [joinedIds, setJoinedIds] = useState<Set<string>>(new Set());
-  const [upcomingGames, setUpcomingGames] = useState<Game[]>([]);
+  // derived from games + joinedIds — no separate fetch needed
+  const upcomingGames = useMemo(() => {
+    const now = new Date().toISOString();
+    return games
+      .filter((g) => joinedIds.has(g.id) && g.status === "open" && g.start_time >= now)
+      .sort((a, b) => a.start_time.localeCompare(b.start_time));
+  }, [games, joinedIds]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState<Sport>("All");
   const [modalVisible, setModalVisible] = useState(false);
+  const [chatGame, setChatGame] = useState<Game | null>(null);
+  const [unreadGameIds, setUnreadGameIds] = useState<Set<string>>(new Set());
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const currentUserIdRef = useRef<string | null>(null);
   const [currentUsername, setCurrentUsername] = useState<string | null>(null);
   const [selectedGame, setSelectedGame] = useState<Game | null>(null);
   const [participants, setParticipants] = useState<Participant[]>([]);
@@ -111,15 +125,6 @@ export default function HomeScreen() {
     if (data) setJoinedIds(new Set(data.map((r) => r.game_id)));
   }, []);
 
-  const fetchUpcoming = useCallback(async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    const { data: participations } = await supabase.from("game_participants").select("game_id").eq("user_name", user.email);
-    if (!participations || participations.length === 0) { setUpcomingGames([]); return; }
-    const ids = participations.map((p) => p.game_id);
-    const { data: games } = await supabase.from("games_with_counts").select("*").in("id", ids).eq("status", "open").gte("start_time", new Date().toISOString()).order("start_time", { ascending: true });
-    if (games) setUpcomingGames(games);
-  }, []);
 
   const fetchNotifications = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -212,9 +217,51 @@ export default function HomeScreen() {
     setNotifications((prev) => prev.filter((x) => x.id !== n.id));
   }
 
+  const checkUnreadMessages = useCallback(async () => {
+    if (joinedIds.size === 0) return;
+    const ids = Array.from(joinedIds);
+    const stored = await AsyncStorage.getItem("@chat_last_read");
+    const lastReadMap: Record<string, string> = stored ? JSON.parse(stored) : {};
+    const { data } = await supabase
+      .from("game_messages")
+      .select("game_id, created_at")
+      .in("game_id", ids)
+      .order("created_at", { ascending: false });
+    if (!data) return;
+    const latestPerGame: Record<string, string> = {};
+    for (const msg of data) {
+      if (!latestPerGame[msg.game_id]) latestPerGame[msg.game_id] = msg.created_at;
+    }
+    const unread = new Set<string>();
+    for (const gameId of ids) {
+      const latest = latestPerGame[gameId];
+      if (!latest) continue;
+      const lastRead = lastReadMap[gameId];
+      if (!lastRead || latest > lastRead) unread.add(gameId);
+    }
+    setUnreadGameIds(unread);
+  }, [joinedIds]);
+
+  // Initial check when joined games are known
+  useEffect(() => { checkUnreadMessages(); }, [checkUnreadMessages]);
+
+  // Poll every 15 s so dots appear without needing a manual refresh
+  useEffect(() => {
+    const interval = setInterval(checkUnreadMessages, 5000);
+    return () => clearInterval(interval);
+  }, [checkUnreadMessages]);
+
+  async function markGameRead(gameId: string) {
+    setUnreadGameIds((prev) => { const next = new Set(prev); next.delete(gameId); return next; });
+    const stored = await AsyncStorage.getItem("@chat_last_read");
+    const map: Record<string, string> = stored ? JSON.parse(stored) : {};
+    map[gameId] = new Date().toISOString();
+    await AsyncStorage.setItem("@chat_last_read", JSON.stringify(map));
+  }
+
   async function onRefresh() {
     setRefreshing(true);
-    await Promise.all([fetchGames(), fetchJoined(), fetchUpcoming(), fetchNotifications(), fetchAllNotifications(), fetchRatableGames(), checkAndClearAbandonedFlag()]);
+    await Promise.all([fetchGames(), fetchJoined(), fetchNotifications(), fetchAllNotifications(), fetchRatableGames(), checkAndClearAbandonedFlag()]);
     setRefreshing(false);
   }
 
@@ -222,25 +269,31 @@ export default function HomeScreen() {
     supabase.auth.getUser().then(async ({ data: { user } }) => {
       if (user) {
         setCurrentUserId(user.id);
+        currentUserIdRef.current = user.id;
         const { data: p } = await supabase.from("profiles").select("username").eq("id", user.id).single();
         if (p) setCurrentUsername(p.username);
       }
     });
     fetchGames();
     fetchJoined();
-    fetchUpcoming();
     fetchNotifications();
     fetchAllNotifications();
     fetchRatableGames();
     checkAndClearAbandonedFlag();
 
     const channel = supabase.channel("games-realtime")
-      .on("postgres_changes", { event: "*", schema: "public", table: "games" }, () => { fetchGames(); fetchUpcoming(); })
-      .on("postgres_changes", { event: "*", schema: "public", table: "game_participants" }, () => { fetchGames(); fetchJoined(); fetchUpcoming(); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "games" }, () => { fetchGames(); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "game_participants" }, () => { fetchGames(); fetchJoined(); })
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications" }, () => { fetchNotifications(); fetchAllNotifications(); })
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "game_messages" }, (payload) => {
+        const { game_id, user_id } = payload.new as { game_id: string; user_id: string };
+        if (user_id !== currentUserIdRef.current) {
+          setUnreadGameIds((prev) => new Set(prev).add(game_id));
+        }
+      })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [fetchGames, fetchJoined, fetchUpcoming, fetchNotifications, fetchAllNotifications, fetchRatableGames, checkAndClearAbandonedFlag]);
+  }, [fetchGames, fetchJoined, fetchNotifications, fetchAllNotifications, fetchRatableGames, checkAndClearAbandonedFlag]);
 
   async function openGame(game: Game) {
     setSelectedGame(game);
@@ -320,7 +373,6 @@ export default function HomeScreen() {
     if (error) { Alert.alert("Error", error.message); return; }
     setJoinedIds((prev) => new Set(prev).add(game.id));
     fetchGames();
-    fetchUpcoming();
   }
 
   async function doLeaveGame(game: Game) {
@@ -336,7 +388,6 @@ export default function HomeScreen() {
       if (updateErr) Alert.alert("Error updating profile", updateErr.message);
     }
     fetchGames();
-    fetchUpcoming();
   }
 
   function leaveGame(game: Game) {
@@ -489,10 +540,6 @@ export default function HomeScreen() {
                 </View>
               )}
             </Pressable>
-            <View style={styles.livePill}>
-              <View style={styles.liveDot} />
-              <Text style={styles.liveText}>live</Text>
-            </View>
           </View>
         </View>
         <Text style={styles.sub}>Find and join pickup games around campus</Text>
@@ -702,6 +749,8 @@ export default function HomeScreen() {
                 onJoin={joinGame}
                 onLeave={leaveGame}
                 onCancel={item.created_by === currentUserId ? deleteGame : undefined}
+                onChat={(g) => { markGameRead(g.id); setChatGame(g); }}
+                hasUnread={joinedIds.has(item.id) && unreadGameIds.has(item.id)}
               />
             </Pressable>
           )}
@@ -709,7 +758,14 @@ export default function HomeScreen() {
         />
       </View>
 
-      <CreateGameModal visible={modalVisible} onClose={() => setModalVisible(false)} onCreated={() => { fetchGames(); fetchUpcoming(); }} />
+      <CreateGameModal visible={modalVisible} onClose={() => setModalVisible(false)} onCreated={() => { fetchGames(); }} />
+
+      <ChatModal
+        visible={!!chatGame}
+        gameId={chatGame?.id ?? ""}
+        gameTitle={chatGame ? `${chatGame.sport} · ${chatGame.location}` : ""}
+        onClose={() => { if (chatGame) markGameRead(chatGame.id); setChatGame(null); }}
+      />
 
       {/* Popup for new notifications */}
       <Modal visible={showNotifModal} animationType="fade" transparent>
@@ -876,13 +932,36 @@ export default function HomeScreen() {
                 <Text style={styles.gameInfoText}>👥 {selectedGame?.current_players}/{selectedGame?.max_players} players</Text>
                 <Text style={styles.gameInfoText}>⚡ {selectedGame?.skill_level}</Text>
               </View>
+              <Pressable
+                style={styles.chatRowBtn}
+                onPress={() => {
+                  if (!selectedGame) return;
+                  const game = selectedGame;
+                  setSelectedGame(null);
+                  setParticipants([]);
+                  setProfileInDetail(null);
+                  setProfileInDetailReviews([]);
+                  markGameRead(game.id);
+                  setChatGame(game);
+                }}
+              >
+                <Text style={styles.chatRowIcon}>💬</Text>
+                <Text style={styles.chatRowText}>Game Chat</Text>
+                <Text style={styles.chatRowArrow}>›</Text>
+              </Pressable>
               <Text style={styles.sectionLabel}>Players Joined</Text>
               {loadingParticipants ? (
                 <ActivityIndicator style={{ marginTop: 16 }} />
               ) : participants.length === 0 ? (
                 <Text style={styles.emptyText}>No one has joined yet.</Text>
               ) : (
-                participants.map((p) => (
+                [...participants]
+                  .sort((a, b) => {
+                    const aIsHost = a.profile_id === selectedGame?.created_by ? -1 : 1;
+                    const bIsHost = b.profile_id === selectedGame?.created_by ? -1 : 1;
+                    return aIsHost - bIsHost;
+                  })
+                  .map((p) => (
                   <Pressable
                     key={p.user_name}
                     style={styles.participantCard}
@@ -1082,11 +1161,11 @@ export default function HomeScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: "#fafafa" },
+function makeStyles(c: Colors) { return StyleSheet.create({
+  safe: { flex: 1, backgroundColor: c.bg },
   container: { flex: 1, paddingHorizontal: 20 },
   header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingTop: 16, marginBottom: 2 },
-  appName: { fontSize: 22, fontWeight: "700", color: "#212121" },
+  appName: { fontSize: 22, fontWeight: "700", color: c.text },
   headerRight: { flexDirection: "row", alignItems: "center", gap: 12 },
   notifBtn: { position: "relative" },
   notifIcon: { fontSize: 22 },
@@ -1094,168 +1173,172 @@ const styles = StyleSheet.create({
   notifBadgeText: { color: "#fff", fontSize: 10, fontWeight: "700" },
   livePill: { flexDirection: "row", alignItems: "center", gap: 5 },
   liveDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: "#4caf50" },
-  liveText: { fontSize: 12, color: "#9e9e9e" },
-  sub: { fontSize: 13, color: "#9e9e9e", marginBottom: 16 },
+  liveText: { fontSize: 12, color: c.textFaint },
+  sub: { fontSize: 13, color: c.textFaint, marginBottom: 16 },
   filterRow: { gap: 8, paddingBottom: 16 },
-  chip: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: "#e0e0e0", backgroundColor: "#fff" },
-  chipActive: { backgroundColor: "#212121", borderColor: "#212121" },
-  chipText: { fontSize: 13, color: "#757575" },
-  chipTextActive: { color: "#fff", fontWeight: "600" },
-  createBtn: { borderWidth: 1, borderStyle: "dashed", borderColor: "#bdbdbd", borderRadius: 12, padding: 12, alignItems: "center", marginBottom: 20, backgroundColor: "#fff" },
-  createBtnText: { fontSize: 14, color: "#757575" },
-  upcomingSection: { backgroundColor: "#fff", borderRadius: 14, borderWidth: 1, borderColor: "#e0e0e0", marginBottom: 20, overflow: "hidden" },
+  chip: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface },
+  chipActive: { backgroundColor: c.primary, borderColor: c.primary },
+  chipText: { fontSize: 13, color: c.textMuted },
+  chipTextActive: { color: c.primaryText, fontWeight: "600" },
+  createBtn: { borderWidth: 1, borderStyle: "dashed", borderColor: c.placeholder, borderRadius: 12, padding: 12, alignItems: "center", marginBottom: 20, backgroundColor: c.surface },
+  createBtnText: { fontSize: 14, color: c.textMuted },
+  upcomingSection: { backgroundColor: c.surface, borderRadius: 14, borderWidth: 1, borderColor: c.border, marginBottom: 20, overflow: "hidden" },
   upcomingHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 14 },
-  upcomingTitle: { fontSize: 14, fontWeight: "600", color: "#212121" },
-  upcomingChevron: { fontSize: 12, color: "#9e9e9e" },
-  upcomingCard: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 14, paddingVertical: 12, borderTopWidth: 1, borderTopColor: "#f5f5f5" },
+  upcomingTitle: { fontSize: 14, fontWeight: "600", color: c.text },
+  upcomingChevron: { fontSize: 12, color: c.textFaint },
+  upcomingCard: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 14, paddingVertical: 12, borderTopWidth: 1, borderTopColor: c.borderLight },
   upcomingCardLeft: { flex: 1 },
-  upcomingSport: { fontSize: 14, fontWeight: "600", color: "#212121", marginBottom: 2 },
-  upcomingLocation: { fontSize: 12, color: "#757575", marginBottom: 2 },
-  upcomingTime: { fontSize: 11, color: "#9e9e9e" },
+  upcomingSport: { fontSize: 14, fontWeight: "600", color: c.text, marginBottom: 2 },
+  upcomingLocation: { fontSize: 12, color: c.textMuted, marginBottom: 2 },
+  upcomingTime: { fontSize: 11, color: c.textFaint },
   upcomingSlots: { alignItems: "center" },
-  upcomingSlotsText: { fontSize: 16, fontWeight: "700", color: "#212121" },
-  upcomingSlotsLabel: { fontSize: 10, color: "#9e9e9e" },
-  sectionLabel: { fontSize: 11, fontWeight: "600", letterSpacing: 0.7, textTransform: "uppercase", color: "#bdbdbd", marginBottom: 12, marginTop: 20 },
+  upcomingSlotsText: { fontSize: 16, fontWeight: "700", color: c.text },
+  upcomingSlotsLabel: { fontSize: 10, color: c.textFaint },
+  sectionLabel: { fontSize: 11, fontWeight: "600", letterSpacing: 0.7, textTransform: "uppercase", color: c.placeholder, marginBottom: 12, marginTop: 20 },
   list: { paddingBottom: 40 },
   empty: { alignItems: "center", paddingTop: 48 },
-  emptyText: { fontSize: 14, color: "#bdbdbd", textAlign: "center", lineHeight: 22 },
+  emptyText: { fontSize: 14, color: c.placeholder, textAlign: "center", lineHeight: 22 },
   notifOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center", padding: 24 },
-  notifModal: { backgroundColor: "#fff", borderRadius: 16, padding: 24, width: "100%" },
-  notifModalTitle: { fontSize: 18, fontWeight: "700", color: "#212121", marginBottom: 16 },
+  notifModal: { backgroundColor: c.surface, borderRadius: 16, padding: 24, width: "100%" },
+  notifModalTitle: { fontSize: 18, fontWeight: "700", color: c.text, marginBottom: 16 },
   notifItem: { backgroundColor: "#fff3e0", borderRadius: 10, padding: 12, marginBottom: 10, borderWidth: 1, borderColor: "#ffe0b2" },
-  notifMessage: { fontSize: 13, color: "#212121", lineHeight: 20, marginBottom: 4 },
-  notifMessageRead: { color: "#9e9e9e" },
-  notifTime: { fontSize: 11, color: "#9e9e9e" },
+  notifMessage: { fontSize: 13, color: c.text, lineHeight: 20, marginBottom: 4 },
+  notifMessageRead: { color: c.textFaint },
+  notifTime: { fontSize: 11, color: c.textFaint },
   notifItemRating: { backgroundColor: "#fffbeb", borderColor: "#fde68a" },
   notifTypeIcon: { fontSize: 12, fontWeight: "700", color: "#f59e0b", marginBottom: 4 },
   mailboxItemRating: { backgroundColor: "#fffbeb", borderColor: "#fde68a" },
-  notifDismissBtn: { backgroundColor: "#212121", borderRadius: 10, padding: 14, alignItems: "center", marginTop: 8 },
-  notifDismissText: { color: "#fff", fontWeight: "600", fontSize: 14 },
+  notifDismissBtn: { backgroundColor: c.primary, borderRadius: 10, padding: 14, alignItems: "center", marginTop: 8 },
+  notifDismissText: { color: c.primaryText, fontWeight: "600", fontSize: 14 },
   mailboxItem: { backgroundColor: "#fff3e0", borderRadius: 10, padding: 12, marginBottom: 10, borderWidth: 1, borderColor: "#ffe0b2" },
-  mailboxItemRead: { backgroundColor: "#fafafa", borderColor: "#f0f0f0" },
+  mailboxItemRead: { backgroundColor: c.bg, borderColor: c.border },
   mailboxItemRow: { flexDirection: "row", gap: 10, alignItems: "flex-start" },
   mailboxDot: { fontSize: 12, color: "#e53935", marginTop: 2 },
   friendReqBtns: { flexDirection: "row", gap: 8, marginTop: 10 },
-  acceptFriendBtn: { flex: 1, backgroundColor: "#212121", borderRadius: 8, paddingVertical: 8, alignItems: "center" },
-  acceptFriendBtnText: { color: "#fff", fontWeight: "600", fontSize: 13 },
-  declineFriendBtn: { flex: 1, backgroundColor: "#fff", borderRadius: 8, paddingVertical: 8, alignItems: "center", borderWidth: 1, borderColor: "#e0e0e0" },
-  declineFriendBtnText: { color: "#757575", fontWeight: "600", fontSize: 13 },
-  mailboxFooter: { padding: 20, borderTopWidth: 1, borderTopColor: "#f0f0f0" },
-  markAllReadBtn: { backgroundColor: "#212121", borderRadius: 10, padding: 14, alignItems: "center" },
-  markAllReadText: { color: "#fff", fontWeight: "600", fontSize: 14 },
-  modalSafe: { flex: 1, backgroundColor: "#fafafa" },
-  modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 20, borderBottomWidth: 1, borderBottomColor: "#f0f0f0" },
-  modalTitle: { fontSize: 17, fontWeight: "700", color: "#212121", flex: 1, marginRight: 8 },
-  modalClose: { fontSize: 16, color: "#9e9e9e" },
+  acceptFriendBtn: { flex: 1, backgroundColor: c.primary, borderRadius: 8, paddingVertical: 8, alignItems: "center" },
+  acceptFriendBtnText: { color: c.primaryText, fontWeight: "600", fontSize: 13 },
+  declineFriendBtn: { flex: 1, backgroundColor: c.surface, borderRadius: 8, paddingVertical: 8, alignItems: "center", borderWidth: 1, borderColor: c.border },
+  declineFriendBtnText: { color: c.textMuted, fontWeight: "600", fontSize: 13 },
+  mailboxFooter: { padding: 20, borderTopWidth: 1, borderTopColor: c.borderLight },
+  markAllReadBtn: { backgroundColor: c.primary, borderRadius: 10, padding: 14, alignItems: "center" },
+  markAllReadText: { color: c.primaryText, fontWeight: "600", fontSize: 14 },
+  modalSafe: { flex: 1, backgroundColor: c.bg },
+  modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 20, borderBottomWidth: 1, borderBottomColor: c.borderLight },
+  modalTitle: { fontSize: 17, fontWeight: "700", color: c.text, flex: 1, marginRight: 8 },
+  modalClose: { fontSize: 16, color: c.textFaint },
   backBtn: { flex: 1, marginRight: 8 },
-  backBtnText: { fontSize: 16, color: "#212121", fontWeight: "500" },
+  backBtnText: { fontSize: 16, color: c.text, fontWeight: "500" },
   modalContent: { padding: 20, paddingBottom: 48 },
   gameInfoRow: { flexDirection: "row", gap: 12, flexWrap: "wrap", marginBottom: 8 },
-  gameInfoText: { fontSize: 13, color: "#757575" },
-  participantCard: { flexDirection: "row", alignItems: "center", backgroundColor: "#fff", borderRadius: 12, borderWidth: 1, borderColor: "#e0e0e0", padding: 12, marginBottom: 10 },
+  gameInfoText: { fontSize: 13, color: c.textMuted },
+  chatRowBtn: { flexDirection: "row", alignItems: "center", backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, marginBottom: 4, gap: 10 },
+  chatRowIcon: { fontSize: 18 },
+  chatRowText: { flex: 1, fontSize: 15, fontWeight: "500", color: c.text },
+  chatRowArrow: { fontSize: 18, color: c.placeholder },
+  participantCard: { flexDirection: "row", alignItems: "center", backgroundColor: c.surface, borderRadius: 12, borderWidth: 1, borderColor: c.border, padding: 12, marginBottom: 10 },
   participantAvatar: { width: 44, height: 44, borderRadius: 22, marginRight: 12 },
   participantAvatarPlaceholder: { width: 44, height: 44, borderRadius: 22, backgroundColor: "#212121", alignItems: "center", justifyContent: "center", marginRight: 12 },
   participantAvatarText: { color: "#fff", fontWeight: "700", fontSize: 18 },
   participantInfo: { flex: 1 },
   participantNameRow: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 2 },
-  participantName: { fontSize: 15, fontWeight: "600", color: "#212121" },
+  participantName: { fontSize: 15, fontWeight: "600", color: c.text },
   creatorBadge: { fontSize: 11, fontWeight: "600", color: "#1565c0", backgroundColor: "#e3f2fd", paddingHorizontal: 7, paddingVertical: 2, borderRadius: 10 },
   participantRatingRow: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
-  participantSports: { fontSize: 12, color: "#9e9e9e", flex: 1 },
+  participantSports: { fontSize: 12, color: c.textFaint, flex: 1 },
   participantRating: { fontSize: 12, color: "#f59e0b", fontWeight: "600" },
   kickBtn: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6, backgroundColor: "#fdecea", borderWidth: 1, borderColor: "#f5c6c6", marginLeft: 6 },
   kickBtnText: { fontSize: 12, color: "#e53935", fontWeight: "600" },
   profileRatingDisplay: { fontSize: 14, fontWeight: "600", color: "#f59e0b", marginTop: 4, marginBottom: 8 },
-  rateNowBtn: { paddingHorizontal: 12, paddingVertical: 6, backgroundColor: "#212121", borderRadius: 8 },
-  rateNowBtnText: { color: "#fff", fontSize: 12, fontWeight: "600" },
-  rateGameSubtitle: { fontSize: 12, color: "#9e9e9e", marginTop: 2 },
-  ratePlayerCard: { flexDirection: "column", backgroundColor: "#fff", borderRadius: 12, borderWidth: 1, borderColor: "#e0e0e0", padding: 12, marginBottom: 10 },
+  rateNowBtn: { paddingHorizontal: 12, paddingVertical: 6, backgroundColor: c.primary, borderRadius: 8 },
+  rateNowBtnText: { color: c.primaryText, fontSize: 12, fontWeight: "600" },
+  rateGameSubtitle: { fontSize: 12, color: c.textFaint, marginTop: 2 },
+  ratePlayerCard: { flexDirection: "column", backgroundColor: c.surface, borderRadius: 12, borderWidth: 1, borderColor: c.border, padding: 12, marginBottom: 10 },
   ratePlayerLeft: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1 },
-  ratePlayerName: { fontSize: 15, fontWeight: "600", color: "#212121" },
+  ratePlayerName: { fontSize: 15, fontWeight: "600", color: c.text },
   rateStarsRow: { flexDirection: "row", gap: 4 },
-  rateReviewInput: { marginTop: 10, borderWidth: 1, borderColor: "#e0e0e0", borderRadius: 8, padding: 10, fontSize: 13, backgroundColor: "#fafafa", minHeight: 40, color: "#212121" },
-  rateFooter: { padding: 20, borderTopWidth: 1, borderTopColor: "#f0f0f0" },
-  rateDoneBtn: { backgroundColor: "#212121", borderRadius: 12, padding: 16, alignItems: "center" },
-  rateDoneBtnText: { color: "#fff", fontWeight: "700", fontSize: 15 },
-  participantArrow: { fontSize: 20, color: "#bdbdbd" },
+  rateReviewInput: { marginTop: 10, borderWidth: 1, borderColor: c.border, borderRadius: 8, padding: 10, fontSize: 13, backgroundColor: c.input, minHeight: 40, color: c.text },
+  rateFooter: { padding: 20, borderTopWidth: 1, borderTopColor: c.borderLight },
+  rateDoneBtn: { backgroundColor: c.primary, borderRadius: 12, padding: 16, alignItems: "center" },
+  rateDoneBtnText: { color: c.primaryText, fontWeight: "700", fontSize: 15 },
+  participantArrow: { fontSize: 20, color: c.placeholder },
   profileHeader: { alignItems: "center", marginBottom: 24 },
   profileAvatar: { width: 80, height: 80, borderRadius: 40, marginBottom: 12 },
   profileAvatarPlaceholder: { width: 80, height: 80, borderRadius: 40, backgroundColor: "#212121", alignItems: "center", justifyContent: "center", marginBottom: 12 },
   profileAvatarText: { fontSize: 32, fontWeight: "700", color: "#fff" },
-  profileUsername: { fontSize: 20, fontWeight: "700", color: "#212121" },
+  profileUsername: { fontSize: 20, fontWeight: "700", color: c.text },
   sportsRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 8 },
   sportChip: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, backgroundColor: "#212121", borderWidth: 1, borderColor: "#212121" },
   sportChipText: { color: "#fff", fontWeight: "600", fontSize: 13 },
-  noSportsText: { fontSize: 13, color: "#9e9e9e", fontStyle: "italic" },
+  noSportsText: { fontSize: 13, color: c.textFaint, fontStyle: "italic" },
   reviewInputRow: { flexDirection: "row", gap: 8, marginBottom: 16 },
-  reviewInput: { flex: 1, borderWidth: 1, borderColor: "#e0e0e0", borderRadius: 10, padding: 12, fontSize: 14, backgroundColor: "#fff", minHeight: 44 },
-  reviewSubmitBtn: { paddingHorizontal: 16, borderRadius: 10, backgroundColor: "#212121", justifyContent: "center" },
+  reviewInput: { flex: 1, borderWidth: 1, borderColor: c.border, borderRadius: 10, padding: 12, fontSize: 14, backgroundColor: c.surface, minHeight: 44, color: c.text },
+  reviewSubmitBtn: { paddingHorizontal: 16, borderRadius: 10, backgroundColor: c.primary, justifyContent: "center" },
   reviewSubmitBtnDisabled: { backgroundColor: "#bdbdbd" },
-  reviewSubmitText: { color: "#fff", fontWeight: "600", fontSize: 13 },
-  reviewCard: { backgroundColor: "#fff", borderRadius: 12, borderWidth: 1, borderColor: "#e0e0e0", padding: 14, marginBottom: 10 },
+  reviewSubmitText: { color: c.primaryText, fontWeight: "600", fontSize: 13 },
+  reviewCard: { backgroundColor: c.surface, borderRadius: 12, borderWidth: 1, borderColor: c.border, padding: 14, marginBottom: 10 },
   reviewHeader: { flexDirection: "row", justifyContent: "space-between", marginBottom: 6 },
-  reviewerName: { fontSize: 13, fontWeight: "600", color: "#212121" },
-  reviewDate: { fontSize: 11, color: "#9e9e9e" },
-  reviewComment: { fontSize: 13, color: "#424242", lineHeight: 20 },
+  reviewerName: { fontSize: 13, fontWeight: "600", color: c.text },
+  reviewDate: { fontSize: 11, color: c.textFaint },
+  reviewComment: { fontSize: 13, color: c.textSub, lineHeight: 20 },
   abandonedBadge: { backgroundColor: "#fff3e0", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, borderWidth: 1, borderColor: "#ff9800" },
   abandonedBadgeText: { fontSize: 10, color: "#e65100", fontWeight: "700" },
-  profileStatsRow: { flexDirection: "row", justifyContent: "center", alignItems: "center", backgroundColor: "#f9f9f9", borderRadius: 12, paddingVertical: 14, marginBottom: 20, marginTop: 4 },
+  profileStatsRow: { flexDirection: "row", justifyContent: "center", alignItems: "center", backgroundColor: c.borderLight, borderRadius: 12, paddingVertical: 14, marginBottom: 20, marginTop: 4 },
   profileStatItem: { flex: 1, alignItems: "center" },
-  profileStatNum: { fontSize: 20, fontWeight: "700", color: "#212121" },
+  profileStatNum: { fontSize: 20, fontWeight: "700", color: c.text },
   profileStatNumAbandoned: { color: "#e65100" },
-  profileStatLabel: { fontSize: 11, color: "#9e9e9e", marginTop: 2 },
-  profileStatDivider: { width: 1, height: 32, backgroundColor: "#e0e0e0" },
+  profileStatLabel: { fontSize: 11, color: c.textFaint, marginTop: 2 },
+  profileStatDivider: { width: 1, height: 32, backgroundColor: c.border },
   leaveOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.55)", justifyContent: "center", alignItems: "center", padding: 24 },
-  leaveModal: { backgroundColor: "#fff", borderRadius: 18, padding: 24, width: "100%" },
-  leaveModalTitle: { fontSize: 20, fontWeight: "700", color: "#212121", marginBottom: 4 },
-  leaveModalSport: { fontSize: 13, color: "#9e9e9e", marginBottom: 20 },
+  leaveModal: { backgroundColor: c.surface, borderRadius: 18, padding: 24, width: "100%" },
+  leaveModalTitle: { fontSize: 20, fontWeight: "700", color: c.text, marginBottom: 4 },
+  leaveModalSport: { fontSize: 13, color: c.textFaint, marginBottom: 20 },
   leaveWarningBox: { flexDirection: "row", alignItems: "flex-start", gap: 10, backgroundColor: "#fff8e1", borderRadius: 12, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: "#ffe082" },
   leaveWarningIcon: { fontSize: 18, marginTop: 1 },
   leaveWarningText: { flex: 1, fontSize: 14, color: "#5d4037", lineHeight: 20 },
   leaveWarningBold: { fontWeight: "700", color: "#e65100" },
-  leaveHowToBox: { backgroundColor: "#f5f5f5", borderRadius: 12, padding: 14, marginBottom: 24 },
-  leaveHowToTitle: { fontSize: 13, fontWeight: "700", color: "#424242", marginBottom: 4 },
-  leaveHowToText: { fontSize: 13, color: "#757575", lineHeight: 22 },
+  leaveHowToBox: { backgroundColor: c.borderLight, borderRadius: 12, padding: 14, marginBottom: 24 },
+  leaveHowToTitle: { fontSize: 13, fontWeight: "700", color: c.textSub, marginBottom: 4 },
+  leaveHowToText: { fontSize: 13, color: c.textMuted, lineHeight: 22 },
   leaveHowToBullet: { fontWeight: "700", color: "#e65100" },
   leaveModalBtns: { flexDirection: "row", gap: 10 },
-  leaveStayBtn: { flex: 1, paddingVertical: 14, borderRadius: 12, borderWidth: 1, borderColor: "#e0e0e0", alignItems: "center", backgroundColor: "#fff" },
-  leaveStayBtnText: { fontSize: 14, fontWeight: "600", color: "#212121" },
+  leaveStayBtn: { flex: 1, paddingVertical: 14, borderRadius: 12, borderWidth: 1, borderColor: c.border, alignItems: "center", backgroundColor: c.surface },
+  leaveStayBtnText: { fontSize: 14, fontWeight: "600", color: c.text },
   leaveConfirmBtn: { flex: 1, paddingVertical: 14, borderRadius: 12, backgroundColor: "#e53935", alignItems: "center" },
   leaveConfirmBtnText: { fontSize: 14, fontWeight: "700", color: "#fff" },
   searchRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 20, marginBottom: 8 },
-  searchBar: { flex: 1, flexDirection: "row", alignItems: "center", backgroundColor: "#fff", borderWidth: 1, borderColor: "#e0e0e0", borderRadius: 12, paddingHorizontal: 12, paddingVertical: 9 },
-  searchIcon: { fontSize: 14, color: "#9e9e9e", marginRight: 6 },
-  searchInput: { flex: 1, fontSize: 14, color: "#212121" },
-  searchClear: { fontSize: 14, color: "#bdbdbd", paddingLeft: 8 },
-  filterToggleBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 12, borderWidth: 1, borderColor: "#e0e0e0", backgroundColor: "#fff" },
-  filterToggleBtnActive: { backgroundColor: "#212121", borderColor: "#212121" },
-  filterToggleIcon: { fontSize: 10, color: "#757575" },
-  filterToggleIconActive: { color: "#fff" },
-  filterToggleLabel: { fontSize: 13, color: "#757575", fontWeight: "500" },
-  filterToggleLabelActive: { color: "#fff", fontWeight: "600" },
-  advancedFilter: { backgroundColor: "#fff", borderRadius: 12, borderWidth: 1, borderColor: "#e0e0e0", padding: 14, marginBottom: 4 },
-  advancedFilterLabel: { fontSize: 11, fontWeight: "600", letterSpacing: 0.7, textTransform: "uppercase", color: "#bdbdbd", marginBottom: 10 },
+  searchBar: { flex: 1, flexDirection: "row", alignItems: "center", backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 9 },
+  searchIcon: { fontSize: 14, color: c.textFaint, marginRight: 6 },
+  searchInput: { flex: 1, fontSize: 14, color: c.text },
+  searchClear: { fontSize: 14, color: c.placeholder, paddingLeft: 8 },
+  filterToggleBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 12, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface },
+  filterToggleBtnActive: { backgroundColor: c.primary, borderColor: c.primary },
+  filterToggleIcon: { fontSize: 10, color: c.textMuted },
+  filterToggleIconActive: { color: c.primaryText },
+  filterToggleLabel: { fontSize: 13, color: c.textMuted, fontWeight: "500" },
+  filterToggleLabelActive: { color: c.primaryText, fontWeight: "600" },
+  advancedFilter: { backgroundColor: c.surface, borderRadius: 12, borderWidth: 1, borderColor: c.border, padding: 14, marginBottom: 4 },
+  advancedFilterLabel: { fontSize: 11, fontWeight: "600", letterSpacing: 0.7, textTransform: "uppercase", color: c.placeholder, marginBottom: 10 },
   dayFilterRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, paddingBottom: 2 },
-  dayChip: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, borderWidth: 1, borderColor: "#e0e0e0", backgroundColor: "#fafafa" },
-  dayChipActive: { backgroundColor: "#212121", borderColor: "#212121" },
-  dayChipText: { fontSize: 13, color: "#757575" },
-  dayChipTextActive: { color: "#fff", fontWeight: "600" },
+  dayChip: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, borderWidth: 1, borderColor: c.border, backgroundColor: c.input },
+  dayChipActive: { backgroundColor: c.primary, borderColor: c.primary },
+  dayChipText: { fontSize: 13, color: c.textMuted },
+  dayChipTextActive: { color: c.primaryText, fontWeight: "600" },
   clearDateFilter: { marginTop: 12, alignSelf: "center" },
   clearDateFilterText: { fontSize: 12, color: "#e53935", fontWeight: "500" },
-  calendarContainer: { backgroundColor: "#fafafa", borderRadius: 10, padding: 8, borderWidth: 1, borderColor: "#f0f0f0" },
+  calendarContainer: { backgroundColor: c.input, borderRadius: 10, padding: 8, borderWidth: 1, borderColor: c.borderLight },
   calendarHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
   calNavBtn: { padding: 4, paddingHorizontal: 10 },
-  calNavText: { fontSize: 20, color: "#212121", fontWeight: "400" },
-  calMonthLabel: { fontSize: 14, fontWeight: "600", color: "#212121" },
+  calNavText: { fontSize: 20, color: c.text, fontWeight: "400" },
+  calMonthLabel: { fontSize: 14, fontWeight: "600", color: c.text },
   calDayNamesRow: { flexDirection: "row", marginBottom: 4 },
-  calDayName: { flex: 1, textAlign: "center", fontSize: 11, fontWeight: "600", color: "#9e9e9e" },
+  calDayName: { flex: 1, textAlign: "center", fontSize: 11, fontWeight: "600", color: c.textFaint },
   calWeekRow: { flexDirection: "row" },
   calDaySlot: { flex: 1, alignItems: "center", paddingVertical: 3 },
   calDayCircle: { width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center" },
-  calDayCircleSelected: { backgroundColor: "#212121" },
+  calDayCircleSelected: { backgroundColor: c.primary },
   calDayCircleToday: { backgroundColor: "#e8f4fd", borderWidth: 1, borderColor: "#1976d2" },
-  calDayText: { fontSize: 13, color: "#212121" },
-  calDayTextSelected: { color: "#fff", fontWeight: "700" },
-  calDayTextPast: { color: "#d0d0d0" },
+  calDayText: { fontSize: 13, color: c.text },
+  calDayTextSelected: { color: c.primaryText, fontWeight: "700" },
+  calDayTextPast: { color: c.placeholder },
   calDayTextToday: { color: "#1976d2", fontWeight: "700" },
-});
+}); }

@@ -1,9 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   View, Text, TextInput, Pressable, FlatList, Modal,
   StyleSheet, SafeAreaView, ActivityIndicator, Image, Alert, ScrollView,
 } from "react-native";
 import { supabase } from "../lib/supabase";
+import { useTheme, Colors } from "../lib/theme";
 
 type Profile = {
   id: string;
@@ -35,6 +36,8 @@ type Game = {
 type ModalType = "joined" | "created" | null;
 
 export default function SearchScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
@@ -394,74 +397,74 @@ export default function SearchScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: "#fafafa" },
+function makeStyles(c: Colors) { return StyleSheet.create({
+  safe: { flex: 1, backgroundColor: c.bg },
   container: { flex: 1, padding: 20 },
   scrollContainer: { padding: 20, paddingBottom: 48 },
-  title: { fontSize: 22, fontWeight: "700", color: "#212121", marginBottom: 16 },
+  title: { fontSize: 22, fontWeight: "700", color: c.text, marginBottom: 16 },
   backBtn: { marginBottom: 16 },
   backBtnText: { fontSize: 15, color: "#1565c0", fontWeight: "500" },
-  searchBar: { flexDirection: "row", alignItems: "center", backgroundColor: "#fff", borderRadius: 12, borderWidth: 1, borderColor: "#e0e0e0", paddingHorizontal: 12, marginBottom: 16 },
+  searchBar: { flexDirection: "row", alignItems: "center", backgroundColor: c.surface, borderRadius: 12, borderWidth: 1, borderColor: c.border, paddingHorizontal: 12, marginBottom: 16 },
   searchIcon: { fontSize: 16, marginRight: 8 },
-  searchInput: { flex: 1, fontSize: 15, paddingVertical: 12, color: "#212121" },
-  clearBtn: { fontSize: 14, color: "#9e9e9e", paddingLeft: 8 },
-  emptyText: { fontSize: 13, color: "#9e9e9e", textAlign: "center", marginTop: 32 },
+  searchInput: { flex: 1, fontSize: 15, paddingVertical: 12, color: c.text },
+  clearBtn: { fontSize: 14, color: c.textFaint, paddingLeft: 8 },
+  emptyText: { fontSize: 13, color: c.textFaint, textAlign: "center", marginTop: 32 },
   list: { paddingBottom: 40 },
-  card: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: "#fff", borderRadius: 12, borderWidth: 1, borderColor: "#e0e0e0", padding: 12, marginBottom: 10 },
+  card: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: c.surface, borderRadius: 12, borderWidth: 1, borderColor: c.border, padding: 12, marginBottom: 10 },
   cardLeft: { flexDirection: "row", alignItems: "center", flex: 1 },
   avatar: { width: 44, height: 44, borderRadius: 22, marginRight: 12 },
   avatarPlaceholder: { width: 44, height: 44, borderRadius: 22, backgroundColor: "#212121", alignItems: "center", justifyContent: "center", marginRight: 12 },
   avatarText: { color: "#fff", fontWeight: "700", fontSize: 18 },
   cardInfo: { flex: 1 },
-  cardUsername: { fontSize: 15, fontWeight: "600", color: "#212121", marginBottom: 2 },
-  cardSports: { fontSize: 12, color: "#9e9e9e" },
-  cardSportsEmpty: { fontSize: 12, color: "#bdbdbd", fontStyle: "italic" },
-  addBtn: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 8, backgroundColor: "#212121" },
-  addBtnText: { color: "#fff", fontSize: 12, fontWeight: "600" },
-  pendingBadge: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 8, backgroundColor: "#f5f5f5", borderWidth: 1, borderColor: "#e0e0e0" },
-  pendingBadgeText: { color: "#9e9e9e", fontSize: 12, fontWeight: "500" },
+  cardUsername: { fontSize: 15, fontWeight: "600", color: c.text, marginBottom: 2 },
+  cardSports: { fontSize: 12, color: c.textFaint },
+  cardSportsEmpty: { fontSize: 12, color: c.placeholder, fontStyle: "italic" },
+  addBtn: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 8, backgroundColor: c.primary },
+  addBtnText: { color: c.primaryText, fontSize: 12, fontWeight: "600" },
+  pendingBadge: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 8, backgroundColor: c.borderLight, borderWidth: 1, borderColor: c.border },
+  pendingBadgeText: { color: c.textFaint, fontSize: 12, fontWeight: "500" },
   pendingReceivedRow: { flexDirection: "row", gap: 6 },
   acceptBtn: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 8, backgroundColor: "#e8f5e9", borderWidth: 1, borderColor: "#a5d6a7" },
   acceptBtnText: { color: "#2e7d32", fontSize: 12, fontWeight: "600" },
-  declineBtn: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 8, backgroundColor: "#fff", borderWidth: 1, borderColor: "#e0e0e0" },
-  declineBtnText: { color: "#757575", fontSize: 12, fontWeight: "600" },
+  declineBtn: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 8, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border },
+  declineBtnText: { color: c.textMuted, fontSize: 12, fontWeight: "600" },
   friendBadge: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 8, backgroundColor: "#e8f5e9" },
   friendBadgeText: { color: "#2e7d32", fontSize: 12, fontWeight: "600" },
   profileHeader: { alignItems: "center", marginBottom: 24, paddingTop: 8 },
   profileAvatar: { width: 80, height: 80, borderRadius: 40, marginBottom: 12 },
   profileAvatarPlaceholder: { width: 80, height: 80, borderRadius: 40, backgroundColor: "#212121", alignItems: "center", justifyContent: "center", marginBottom: 12 },
   profileAvatarText: { fontSize: 32, fontWeight: "700", color: "#fff" },
-  profileUsername: { fontSize: 20, fontWeight: "700", color: "#212121", marginBottom: 12 },
+  profileUsername: { fontSize: 20, fontWeight: "700", color: c.text, marginBottom: 12 },
   profileActionRow: { flexDirection: "row" },
-  statsRow: { flexDirection: "row", backgroundColor: "#fff", borderRadius: 14, borderWidth: 1, borderColor: "#e0e0e0", marginBottom: 24, paddingVertical: 16 },
+  statsRow: { flexDirection: "row", backgroundColor: c.surface, borderRadius: 14, borderWidth: 1, borderColor: c.border, marginBottom: 24, paddingVertical: 16 },
   statBox: { flex: 1, alignItems: "center" },
-  statNum: { fontSize: 22, fontWeight: "700", color: "#212121" },
-  statLabel: { fontSize: 11, color: "#9e9e9e", marginTop: 2 },
-  statDivider: { width: 1, backgroundColor: "#e0e0e0" },
-  sectionLabel: { fontSize: 11, fontWeight: "600", letterSpacing: 0.6, textTransform: "uppercase", color: "#bdbdbd", marginBottom: 12, marginTop: 20 },
+  statNum: { fontSize: 22, fontWeight: "700", color: c.text },
+  statLabel: { fontSize: 11, color: c.textFaint, marginTop: 2 },
+  statDivider: { width: 1, backgroundColor: c.border },
+  sectionLabel: { fontSize: 11, fontWeight: "600", letterSpacing: 0.6, textTransform: "uppercase", color: c.placeholder, marginBottom: 12, marginTop: 20 },
   sportsRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 8 },
   sportChip: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, backgroundColor: "#212121", borderWidth: 1, borderColor: "#212121" },
   sportChipText: { color: "#fff", fontWeight: "600", fontSize: 13 },
-  noSportsText: { fontSize: 13, color: "#9e9e9e", fontStyle: "italic" },
+  noSportsText: { fontSize: 13, color: c.textFaint, fontStyle: "italic" },
   reviewInputRow: { flexDirection: "row", gap: 8, marginBottom: 16 },
-  reviewInput: { flex: 1, borderWidth: 1, borderColor: "#e0e0e0", borderRadius: 10, padding: 12, fontSize: 14, backgroundColor: "#fff", minHeight: 44 },
-  reviewSubmitBtn: { paddingHorizontal: 16, borderRadius: 10, backgroundColor: "#212121", justifyContent: "center" },
+  reviewInput: { flex: 1, borderWidth: 1, borderColor: c.border, borderRadius: 10, padding: 12, fontSize: 14, backgroundColor: c.surface, minHeight: 44, color: c.text },
+  reviewSubmitBtn: { paddingHorizontal: 16, borderRadius: 10, backgroundColor: c.primary, justifyContent: "center" },
   reviewSubmitBtnDisabled: { backgroundColor: "#bdbdbd" },
-  reviewSubmitText: { color: "#fff", fontWeight: "600", fontSize: 13 },
-  reviewCard: { backgroundColor: "#fff", borderRadius: 12, borderWidth: 1, borderColor: "#e0e0e0", padding: 14, marginBottom: 10 },
+  reviewSubmitText: { color: c.primaryText, fontWeight: "600", fontSize: 13 },
+  reviewCard: { backgroundColor: c.surface, borderRadius: 12, borderWidth: 1, borderColor: c.border, padding: 14, marginBottom: 10 },
   reviewHeader: { flexDirection: "row", justifyContent: "space-between", marginBottom: 6 },
-  reviewerName: { fontSize: 13, fontWeight: "600", color: "#212121" },
-  reviewDate: { fontSize: 11, color: "#9e9e9e" },
-  reviewComment: { fontSize: 13, color: "#424242", lineHeight: 20 },
-  modalSafe: { flex: 1, backgroundColor: "#fafafa" },
-  modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 20, borderBottomWidth: 1, borderBottomColor: "#f0f0f0" },
-  modalTitle: { fontSize: 18, fontWeight: "700", color: "#212121" },
-  modalClose: { fontSize: 16, color: "#9e9e9e" },
+  reviewerName: { fontSize: 13, fontWeight: "600", color: c.text },
+  reviewDate: { fontSize: 11, color: c.textFaint },
+  reviewComment: { fontSize: 13, color: c.textSub, lineHeight: 20 },
+  modalSafe: { flex: 1, backgroundColor: c.bg },
+  modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 20, borderBottomWidth: 1, borderBottomColor: c.borderLight },
+  modalTitle: { fontSize: 18, fontWeight: "700", color: c.text },
+  modalClose: { fontSize: 16, color: c.textFaint },
   modalList: { padding: 20, paddingBottom: 48 },
-  gameCard: { backgroundColor: "#fff", borderRadius: 12, borderWidth: 1, borderColor: "#e0e0e0", padding: 14, marginBottom: 10 },
+  gameCard: { backgroundColor: c.surface, borderRadius: 12, borderWidth: 1, borderColor: c.border, padding: 14, marginBottom: 10 },
   gameCardTop: { flexDirection: "row", justifyContent: "space-between", marginBottom: 4 },
-  gameCardSport: { fontSize: 14, fontWeight: "600", color: "#212121" },
-  gameCardTime: { fontSize: 12, color: "#9e9e9e" },
-  gameCardLocation: { fontSize: 14, color: "#424242", marginBottom: 4 },
-  gameCardMeta: { fontSize: 12, color: "#9e9e9e" },
-});
+  gameCardSport: { fontSize: 14, fontWeight: "600", color: c.text },
+  gameCardTime: { fontSize: 12, color: c.textFaint },
+  gameCardLocation: { fontSize: 14, color: c.textSub, marginBottom: 4 },
+  gameCardMeta: { fontSize: 12, color: c.textFaint },
+}); }

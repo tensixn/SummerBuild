@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   View, Text, ScrollView, Pressable, TextInput, Modal,
   StyleSheet, SafeAreaView, Alert, ActivityIndicator, Image, FlatList, RefreshControl,
@@ -6,6 +6,8 @@ import {
 import * as ImagePicker from "expo-image-picker";
 import { supabase } from "../lib/supabase";
 import { SPORTS } from "../lib/types";
+import { useTheme, Colors } from "../lib/theme";
+import { Switch } from "react-native";
 
 const SPORT_OPTIONS = SPORTS.filter((s) => s !== "All");
 
@@ -45,6 +47,8 @@ type Rating = {
 type ModalType = "joined" | "created" | "friends" | null;
 
 export default function ProfileScreen() {
+  const { colors, isDark, toggle } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [reviews, setReviews] = useState<Review[]>([]);
   const [gamesJoined, setGamesJoined] = useState(0);
@@ -506,12 +510,12 @@ export default function ProfileScreen() {
           )
         )}
 
-        <Pressable style={styles.signOutBtn} onPress={() => Alert.alert("For real?", "", [{ text: "No", style: "cancel" }, { text: "Yes", style: "destructive", onPress: () => supabase.auth.signOut() }])}>
-          <Text style={styles.signOutText}>Sign out</Text>
-        </Pressable>
-
         <Pressable style={styles.signOutBtn} onPress={() => setShowSettings(true)}>
           <Text style={styles.settingsChangePasswordText}>Settings</Text>
+        </Pressable>
+
+        <Pressable style={styles.signOutBtn} onPress={() => Alert.alert("For real?", "", [{ text: "No", style: "cancel" }, { text: "Yes", style: "destructive", onPress: () => supabase.auth.signOut() }])}>
+          <Text style={styles.signOutText}>Sign out</Text>
         </Pressable>
       </ScrollView>
 
@@ -529,6 +533,10 @@ export default function ProfileScreen() {
               <Text style={styles.settingsRowLabel}>Change password</Text>
               <Text style={styles.settingsRowArrow}>›</Text>
             </Pressable>
+            <View style={[styles.settingsRow, styles.settingsRowBorder]}>
+              <Text style={styles.settingsRowLabel}>Dark mode</Text>
+              <Switch value={isDark} onValueChange={toggle} trackColor={{ false: "#e0e0e0", true: "#4caf50" }} thumbColor="#fff" />
+            </View>
           </View>
         </SafeAreaView>
       </Modal>
@@ -755,8 +763,8 @@ export default function ProfileScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: "#fafafa" },
+function makeStyles(c: Colors) { return StyleSheet.create({
+  safe: { flex: 1, backgroundColor: c.bg },
   container: { padding: 20, paddingBottom: 48 },
   header: { alignItems: "center", marginBottom: 24, paddingTop: 8 },
   avatarWrapper: { marginBottom: 12, position: "relative" },
@@ -766,86 +774,87 @@ const styles = StyleSheet.create({
   avatarOverlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, borderRadius: 40, backgroundColor: "rgba(0,0,0,0.4)", alignItems: "center", justifyContent: "center" },
   avatarOverlayText: { fontSize: 24 },
   usernameRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 },
-  username: { fontSize: 20, fontWeight: "700", color: "#212121" },
+  username: { fontSize: 20, fontWeight: "700", color: c.text },
   usernameRating: { fontSize: 13, fontWeight: "600", color: "#f59e0b" },
-  usernameInput: { fontSize: 20, fontWeight: "700", color: "#212121", borderBottomWidth: 2, borderBottomColor: "#212121", marginBottom: 12, minWidth: 150, textAlign: "center" },
-  editBtn: { paddingHorizontal: 16, paddingVertical: 7, borderRadius: 8, borderWidth: 1, borderColor: "#212121" },
-  editBtnText: { fontSize: 13, fontWeight: "500", color: "#212121" },
-  statsRow: { flexDirection: "row", backgroundColor: "#fff", borderRadius: 14, borderWidth: 1, borderColor: "#e0e0e0", marginBottom: 24, paddingVertical: 16 },
+  usernameInput: { fontSize: 20, fontWeight: "700", color: c.text, borderBottomWidth: 2, borderBottomColor: c.text, marginBottom: 12, minWidth: 150, textAlign: "center" },
+  editBtn: { paddingHorizontal: 16, paddingVertical: 7, borderRadius: 8, borderWidth: 1, borderColor: c.border },
+  editBtnText: { fontSize: 13, fontWeight: "500", color: c.text },
+  statsRow: { flexDirection: "row", backgroundColor: c.surface, borderRadius: 14, borderWidth: 1, borderColor: c.border, marginBottom: 24, paddingVertical: 16 },
   statBox: { flex: 1, alignItems: "center" },
-  statNum: { fontSize: 22, fontWeight: "700", color: "#212121" },
+  statNum: { fontSize: 22, fontWeight: "700", color: c.text },
   statNumAbandoned: { color: "#e65100" },
-  statLabel: { fontSize: 11, color: "#9e9e9e", marginTop: 2 },
-  statDivider: { width: 1, backgroundColor: "#e0e0e0" },
+  statLabel: { fontSize: 11, color: c.textFaint, marginTop: 2 },
+  statDivider: { width: 1, backgroundColor: c.border },
   collapsibleHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 20, marginBottom: 12 },
-  chevron: { fontSize: 11, color: "#bdbdbd" },
-  sectionLabel: { fontSize: 11, fontWeight: "600", letterSpacing: 0.6, textTransform: "uppercase", color: "#bdbdbd", marginBottom: 0, marginTop: 0 },
+  chevron: { fontSize: 11, color: c.placeholder },
+  sectionLabel: { fontSize: 11, fontWeight: "600", letterSpacing: 0.6, textTransform: "uppercase", color: c.placeholder, marginBottom: 10, marginTop: 24 },
   sportsRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 8 },
-  sportChip: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, borderWidth: 1, borderColor: "#e0e0e0", backgroundColor: "#fff" },
+  sportChip: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface },
   sportChipActive: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, backgroundColor: "#212121", borderWidth: 1, borderColor: "#212121" },
-  sportChipText: { fontSize: 13, color: "#757575" },
+  sportChipText: { fontSize: 13, color: c.textMuted },
   sportChipTextActive: { color: "#fff", fontWeight: "600", fontSize: 13 },
-  editHint: { fontSize: 12, color: "#9e9e9e", marginBottom: 8 },
-  noSportsText: { fontSize: 13, color: "#9e9e9e", fontStyle: "italic" },
+  editHint: { fontSize: 12, color: c.textFaint, marginBottom: 8 },
+  noSportsText: { fontSize: 13, color: c.textFaint, fontStyle: "italic" },
   reviewInputRow: { flexDirection: "row", gap: 8, marginBottom: 16 },
-  reviewInput: { flex: 1, borderWidth: 1, borderColor: "#e0e0e0", borderRadius: 10, padding: 12, fontSize: 14, backgroundColor: "#fff", minHeight: 44 },
-  reviewSubmitBtn: { paddingHorizontal: 16, borderRadius: 10, backgroundColor: "#212121", justifyContent: "center" },
+  reviewInput: { flex: 1, borderWidth: 1, borderColor: c.border, borderRadius: 10, padding: 12, fontSize: 14, backgroundColor: c.surface, minHeight: 44, color: c.text },
+  reviewSubmitBtn: { paddingHorizontal: 16, borderRadius: 10, backgroundColor: c.primary, justifyContent: "center" },
   reviewSubmitBtnDisabled: { backgroundColor: "#bdbdbd" },
-  reviewSubmitText: { color: "#fff", fontWeight: "600", fontSize: 13 },
-  reviewCard: { backgroundColor: "#fff", borderRadius: 12, borderWidth: 1, borderColor: "#e0e0e0", padding: 14, marginBottom: 10 },
+  reviewSubmitText: { color: c.primaryText, fontWeight: "600", fontSize: 13 },
+  reviewCard: { backgroundColor: c.surface, borderRadius: 12, borderWidth: 1, borderColor: c.border, padding: 14, marginBottom: 10 },
   reviewHeader: { flexDirection: "row", justifyContent: "space-between", marginBottom: 6 },
-  reviewerName: { fontSize: 13, fontWeight: "600", color: "#212121" },
-  reviewDate: { fontSize: 11, color: "#9e9e9e" },
-  reviewComment: { fontSize: 13, color: "#424242", lineHeight: 20 },
-  emptyText: { fontSize: 13, color: "#bdbdbd", textAlign: "center", marginTop: 16 },
-  friendCard: { flexDirection: "row", alignItems: "center", backgroundColor: "#fff", borderRadius: 12, borderWidth: 1, borderColor: "#e0e0e0", padding: 12, marginBottom: 10 },
+  reviewerName: { fontSize: 13, fontWeight: "600", color: c.text },
+  reviewDate: { fontSize: 11, color: c.textFaint },
+  reviewComment: { fontSize: 13, color: c.textSub, lineHeight: 20 },
+  emptyText: { fontSize: 13, color: c.placeholder, textAlign: "center", marginTop: 16 },
+  friendCard: { flexDirection: "row", alignItems: "center", backgroundColor: c.surface, borderRadius: 12, borderWidth: 1, borderColor: c.border, padding: 12, marginBottom: 10 },
   friendAvatar: { width: 44, height: 44, borderRadius: 22, marginRight: 12 },
   friendAvatarPlaceholder: { width: 44, height: 44, borderRadius: 22, backgroundColor: "#212121", alignItems: "center", justifyContent: "center", marginRight: 12 },
   friendAvatarText: { color: "#fff", fontWeight: "700", fontSize: 18 },
   friendInfo: { flex: 1 },
-  friendUsername: { fontSize: 15, fontWeight: "600", color: "#212121", marginBottom: 2 },
-  friendSports: { fontSize: 12, color: "#9e9e9e" },
-  friendArrow: { fontSize: 20, color: "#bdbdbd" },
+  friendUsername: { fontSize: 15, fontWeight: "600", color: c.text, marginBottom: 2 },
+  friendSports: { fontSize: 12, color: c.textFaint },
+  friendArrow: { fontSize: 20, color: c.placeholder },
   friendProfileHeader: { alignItems: "center", marginBottom: 24, paddingTop: 8 },
   friendProfileAvatar: { width: 80, height: 80, borderRadius: 40, marginBottom: 12 },
   friendProfileAvatarPlaceholder: { width: 80, height: 80, borderRadius: 40, backgroundColor: "#212121", alignItems: "center", justifyContent: "center", marginBottom: 12 },
   friendProfileAvatarText: { fontSize: 32, fontWeight: "700", color: "#fff" },
-  friendProfileUsername: { fontSize: 20, fontWeight: "700", color: "#212121", marginBottom: 10 },
-  removeFriendBtn: { paddingHorizontal: 16, paddingVertical: 7, borderRadius: 8, borderWidth: 1, borderColor: "#e0e0e0", backgroundColor: "#fff" },
+  friendProfileUsername: { fontSize: 20, fontWeight: "700", color: c.text, marginBottom: 10 },
+  removeFriendBtn: { paddingHorizontal: 16, paddingVertical: 7, borderRadius: 8, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface },
   removeFriendBtnText: { fontSize: 13, fontWeight: "600", color: "#e53935" },
   ratingHeaderLeft: { flexDirection: "row", alignItems: "center", gap: 8 },
   avgStarsText: { fontSize: 13, fontWeight: "600", color: "#f59e0b" },
-  ratingCard: { backgroundColor: "#fff", borderRadius: 12, borderWidth: 1, borderColor: "#e0e0e0", padding: 12, marginBottom: 10 },
+  ratingCard: { backgroundColor: c.surface, borderRadius: 12, borderWidth: 1, borderColor: c.border, padding: 12, marginBottom: 10 },
   ratingCardHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 6 },
-  ratingDate: { fontSize: 11, color: "#9e9e9e" },
-  ratingComment: { fontSize: 13, color: "#424242", lineHeight: 20 },
+  ratingDate: { fontSize: 11, color: c.textFaint },
+  ratingComment: { fontSize: 13, color: c.textSub, lineHeight: 20 },
   starSelector: { flexDirection: "row", gap: 8, marginBottom: 12 },
   starBtn: { fontSize: 32 },
-  backBtnText: { fontSize: 16, color: "#212121", fontWeight: "500" },
-  signOutBtn: { marginTop: 32, paddingVertical: 14, borderRadius: 12, borderWidth: 1, borderColor: "#e0e0e0", alignItems: "center", backgroundColor: "#fff" },
+  backBtnText: { fontSize: 16, color: c.text, fontWeight: "500" },
+  signOutBtn: { marginTop: 32, paddingVertical: 14, borderRadius: 12, borderWidth: 1, borderColor: c.border, alignItems: "center", backgroundColor: c.surface },
   signOutText: { fontSize: 14, fontWeight: "600", color: "#e53935" },
-  settingsChangePasswordText: { fontSize: 14, fontWeight: "600", color: "#212121" },
+  settingsChangePasswordText: { fontSize: 14, fontWeight: "600", color: c.text },
   abandonedBadge: { backgroundColor: "#fff3e0", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, borderWidth: 1, borderColor: "#ff9800" },
   abandonedBadgeText: { fontSize: 11, color: "#e65100", fontWeight: "700" },
-  settingsCard: { margin: 20, backgroundColor: "#fff", borderRadius: 12, borderWidth: 1, borderColor: "#e0e0e0", overflow: "hidden" },
+  settingsCard: { margin: 20, backgroundColor: c.surface, borderRadius: 12, borderWidth: 1, borderColor: c.border, overflow: "hidden" },
   settingsRow: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 16 },
-  settingsRowLabel: { flex: 1, fontSize: 15, color: "#212121" },
-  settingsRowArrow: { fontSize: 20, color: "#bdbdbd" },
-  pwLabel: { fontSize: 12, fontWeight: "600", color: "#9e9e9e", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8, marginTop: 4 },
-  pwInput: { backgroundColor: "#fff", borderWidth: 1, borderColor: "#e0e0e0", borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: "#212121", marginBottom: 20 },
-  pwSaveBtn: { marginTop: 8, backgroundColor: "#212121", borderRadius: 12, paddingVertical: 15, alignItems: "center" },
+  settingsRowBorder: { borderTopWidth: 1, borderTopColor: c.borderLight },
+  settingsRowLabel: { flex: 1, fontSize: 15, color: c.text },
+  settingsRowArrow: { fontSize: 20, color: c.placeholder },
+  pwLabel: { fontSize: 12, fontWeight: "600", color: c.textFaint, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8, marginTop: 4 },
+  pwInput: { backgroundColor: c.input, borderWidth: 1, borderColor: c.border, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: c.text, marginBottom: 20 },
+  pwSaveBtn: { marginTop: 8, backgroundColor: c.primary, borderRadius: 12, paddingVertical: 15, alignItems: "center" },
   pwSaveBtnDisabled: { backgroundColor: "#bdbdbd" },
-  pwSaveBtnText: { color: "#fff", fontWeight: "700", fontSize: 15 },
-  modalSafe: { flex: 1, backgroundColor: "#fafafa" },
-  modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 20, borderBottomWidth: 1, borderBottomColor: "#f0f0f0" },
-  modalTitle: { fontSize: 18, fontWeight: "700", color: "#212121" },
-  modalClose: { fontSize: 16, color: "#9e9e9e" },
+  pwSaveBtnText: { color: c.primaryText, fontWeight: "700", fontSize: 15 },
+  modalSafe: { flex: 1, backgroundColor: c.bg },
+  modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 20, borderBottomWidth: 1, borderBottomColor: c.borderLight },
+  modalTitle: { fontSize: 18, fontWeight: "700", color: c.text },
+  modalClose: { fontSize: 16, color: c.textFaint },
   modalList: { padding: 20, paddingBottom: 48 },
-  gameCard: { backgroundColor: "#fff", borderRadius: 12, borderWidth: 1, borderColor: "#e0e0e0", padding: 14, marginBottom: 10 },
+  gameCard: { backgroundColor: c.surface, borderRadius: 12, borderWidth: 1, borderColor: c.border, padding: 14, marginBottom: 10 },
   gameCardTop: { flexDirection: "row", justifyContent: "space-between", marginBottom: 4 },
-  gameCardSport: { fontSize: 14, fontWeight: "600", color: "#212121" },
-  gameCardTime: { fontSize: 12, color: "#9e9e9e" },
-  gameCardLocation: { fontSize: 14, color: "#424242", marginBottom: 2 },
+  gameCardSport: { fontSize: 14, fontWeight: "600", color: c.text },
+  gameCardTime: { fontSize: 12, color: c.textFaint },
+  gameCardLocation: { fontSize: 14, color: c.textSub, marginBottom: 2 },
   gameCardDate: { fontSize: 11, color: "#1565c0", marginBottom: 4 },
-  gameCardMeta: { fontSize: 12, color: "#9e9e9e" },
-});
+  gameCardMeta: { fontSize: 12, color: c.textFaint },
+}); }

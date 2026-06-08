@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { View, Text, Pressable, StyleSheet } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import HomeScreen from "./screens/HomeScreen";
 import MapScreen from "./screens/MapScreen";
 import ProfileScreen from "./screens/ProfileScreen";
@@ -9,6 +10,9 @@ import LoginScreen from "./screens/LoginScreen";
 import SignupScreen from "./screens/SignupScreen";
 import SearchScreen from "./screens/SearchScreen";
 import { supabase } from "./lib/supabase";
+import { ThemeContext, lightColors, darkColors } from "./lib/theme";
+
+const DARK_KEY = "@dark_mode";
 
 type Tab = "games" | "map" | "profile" | "search";
 type AuthScreen = "login" | "signup";
@@ -26,7 +30,20 @@ function AppContent() {
   const [authScreen, setAuthScreen] = useState<AuthScreen>("login");
   const [loggedIn, setLoggedIn] = useState(false);
   const [checking, setChecking] = useState(true);
+  const [isDark, setIsDark] = useState(false);
   const insets = useSafeAreaInsets();
+
+  useEffect(() => {
+    AsyncStorage.getItem(DARK_KEY).then((v) => { if (v === "1") setIsDark(true); });
+  }, []);
+
+  function toggle() {
+    setIsDark((prev) => {
+      const next = !prev;
+      AsyncStorage.setItem(DARK_KEY, next ? "1" : "0");
+      return next;
+    });
+  }
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -39,54 +56,60 @@ function AppContent() {
     return () => listener.subscription.unsubscribe();
   }, []);
 
+  const colors = isDark ? darkColors : lightColors;
+
   if (checking) return null;
 
   if (!loggedIn) {
-    return authScreen === "login" ? (
-      <LoginScreen onSwitch={() => setAuthScreen("signup")} onLogin={() => setLoggedIn(true)} />
-    ) : (
-      <SignupScreen onSwitch={() => setAuthScreen("login")} onSignup={() => setAuthScreen("login")} />
+    return (
+      <ThemeContext.Provider value={{ isDark, toggle, colors }}>
+        {authScreen === "login" ? (
+          <LoginScreen onSwitch={() => setAuthScreen("signup")} onLogin={() => setLoggedIn(true)} />
+        ) : (
+          <SignupScreen onSwitch={() => setAuthScreen("login")} onSignup={() => setAuthScreen("login")} />
+        )}
+      </ThemeContext.Provider>
     );
   }
 
   return (
-    <View style={styles.root}>
-      <StatusBar style="dark" />
-      <View style={styles.content}>
-        {tab === "games" ? <HomeScreen /> :
-         tab === "map" ? <MapScreen /> :
-         tab === "search" ? <SearchScreen /> :
-         <ProfileScreen />}
+    <ThemeContext.Provider value={{ isDark, toggle, colors }}>
+      <View style={[styles.root, { backgroundColor: colors.bg }]}>
+        <StatusBar style={isDark ? "light" : "dark"} />
+        <View style={styles.content}>
+          {tab === "games" ? <HomeScreen /> :
+           tab === "map" ? <MapScreen /> :
+           tab === "search" ? <SearchScreen /> :
+           <ProfileScreen />}
+        </View>
+        <View style={[styles.nav, { paddingBottom: insets.bottom || 8, backgroundColor: colors.surface, borderTopColor: colors.borderLight }]}>
+          <Pressable style={styles.navItem} onPress={() => setTab("games")}>
+            <Text style={[styles.navIcon, tab === "games" && styles.navIconActive]}>⚡️</Text>
+            <Text style={[styles.navLabel, tab === "games" && { color: colors.text }]}>Games</Text>
+          </Pressable>
+          <Pressable style={styles.navItem} onPress={() => setTab("map")}>
+            <Text style={[styles.navIcon, tab === "map" && styles.navIconActive]}>🗺</Text>
+            <Text style={[styles.navLabel, tab === "map" && { color: colors.text }]}>Map</Text>
+          </Pressable>
+          <Pressable style={styles.navItem} onPress={() => setTab("search")}>
+            <Text style={[styles.navIcon, tab === "search" && styles.navIconActive]}>🔍</Text>
+            <Text style={[styles.navLabel, tab === "search" && { color: colors.text }]}>Search</Text>
+          </Pressable>
+          <Pressable style={styles.navItem} onPress={() => setTab("profile")}>
+            <Text style={[styles.navIcon, tab === "profile" && styles.navIconActive]}>👤</Text>
+            <Text style={[styles.navLabel, tab === "profile" && { color: colors.text }]}>Profile</Text>
+          </Pressable>
+        </View>
       </View>
-      <View style={[styles.nav, { paddingBottom: insets.bottom || 8 }]}>
-        <Pressable style={styles.navItem} onPress={() => setTab("games")}>
-          <Text style={[styles.navIcon, tab === "games" && styles.navIconActive]}>⚡️</Text>
-          <Text style={[styles.navLabel, tab === "games" && styles.navLabelActive]}>Games</Text>
-        </Pressable>
-        <Pressable style={styles.navItem} onPress={() => setTab("map")}>
-          <Text style={[styles.navIcon, tab === "map" && styles.navIconActive]}>🗺</Text>
-          <Text style={[styles.navLabel, tab === "map" && styles.navLabelActive]}>Map</Text>
-        </Pressable>
-        <Pressable style={styles.navItem} onPress={() => setTab("search")}>
-          <Text style={[styles.navIcon, tab === "search" && styles.navIconActive]}>🔍</Text>
-          <Text style={[styles.navLabel, tab === "search" && styles.navLabelActive]}>Search</Text>
-        </Pressable>
-        <Pressable style={styles.navItem} onPress={() => setTab("profile")}>
-          <Text style={[styles.navIcon, tab === "profile" && styles.navIconActive]}>👤</Text>
-          <Text style={[styles.navLabel, tab === "profile" && styles.navLabelActive]}>Profile</Text>
-        </Pressable>
-      </View>
-    </View>
+    </ThemeContext.Provider>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: "#fafafa" },
+  root: { flex: 1 },
   content: { flex: 1 },
   nav: {
-    backgroundColor: "#fff",
     borderTopWidth: 1,
-    borderTopColor: "#f0f0f0",
     flexDirection: "row",
     paddingVertical: 8,
   },
@@ -94,5 +117,4 @@ const styles = StyleSheet.create({
   navIcon: { fontSize: 22, opacity: 0.4 },
   navIconActive: { opacity: 1 },
   navLabel: { fontSize: 10, fontWeight: "500", color: "#bdbdbd", letterSpacing: 0.3 },
-  navLabelActive: { color: "#212121" },
 });

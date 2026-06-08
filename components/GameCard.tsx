@@ -1,5 +1,7 @@
+import { useMemo } from "react";
 import { View, Text, Pressable, StyleSheet } from "react-native";
 import { Game } from "../lib/types";
+import { useTheme, Colors } from "../lib/theme";
 
 type Props = {
   game: Game;
@@ -7,6 +9,8 @@ type Props = {
   onJoin: (game: Game) => void;
   onLeave: (game: Game) => void;
   onCancel?: (game: Game) => void;
+  onChat?: (game: Game) => void;
+  hasUnread?: boolean;
 };
 
 const SPORT_COLORS: Record<string, { bg: string; text: string }> = {
@@ -33,37 +37,34 @@ function formatTimeRange(start: string, end: string | null) {
   return end ? `${fmt(start)} – ${fmt(end)}` : fmt(start);
 }
 
-function SlotBar({ current, max }: { current: number; max: number }) {
+function SlotBar({ current, max, colors }: { current: number; max: number; colors: Colors }) {
   const pct = Math.round((current / max) * 100);
-  const color =
-    current >= max ? "#4caf50" : pct >= 75 ? "#ff9800" : "#4caf50";
+  const color = current >= max ? "#4caf50" : pct >= 75 ? "#ff9800" : "#4caf50";
   return (
-    <View style={styles.barBg}>
-      <View style={[styles.barFill, { width: `${pct}%` as any, backgroundColor: color }]} />
+    <View style={[barStyles.bg, { backgroundColor: colors.borderLight }]}>
+      <View style={[barStyles.fill, { width: `${pct}%` as any, backgroundColor: color }]} />
     </View>
   );
 }
 
-export default function GameCard({ game, isJoined, onJoin, onLeave, onCancel }: Props) {
+const barStyles = StyleSheet.create({
+  bg: { height: 3, borderRadius: 2, marginBottom: 10, overflow: "hidden" },
+  fill: { height: "100%", borderRadius: 2 },
+});
+
+export default function GameCard({ game, isJoined, onJoin, onLeave, onCancel, onChat, hasUnread }: Props) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const isFull = game.current_players >= game.max_players;
   const sportColor = SPORT_COLORS[game.sport] ?? { bg: "#f5f5f5", text: "#616161" };
-  const isInProgress = game.status === "in_progress";
 
   return (
-    <View style={[styles.card, isJoined && !isInProgress && styles.cardJoined, isInProgress && styles.cardInProgress]}>
+    <View style={[styles.card, isJoined && styles.cardJoined]}>
       <View style={styles.cardTop}>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-          <View style={[styles.sportTag, { backgroundColor: sportColor.bg }]}>
-            <Text style={[styles.sportTagText, { color: sportColor.text }]}>
-              {game.sport}
-            </Text>
-          </View>
-          {isInProgress && (
-            <View style={styles.inProgressTag}>
-              <View style={styles.inProgressDot} />
-              <Text style={styles.inProgressTagText}>In Progress</Text>
-            </View>
-          )}
+        <View style={[styles.sportTag, { backgroundColor: sportColor.bg }]}>
+          <Text style={[styles.sportTagText, { color: sportColor.text }]}>
+            {game.sport}
+          </Text>
         </View>
         <View style={styles.timeGroup}>
           <Text style={styles.timeRange}>{formatTimeRange(game.start_time, game.end_time)}</Text>
@@ -84,25 +85,23 @@ export default function GameCard({ game, isJoined, onJoin, onLeave, onCancel }: 
         <Text style={styles.desc}>{game.description}</Text>
       )}
 
-      <SlotBar current={game.current_players} max={game.max_players} />
+      <SlotBar current={game.current_players} max={game.max_players} colors={colors} />
 
       <View style={styles.footer}>
-        <Text style={styles.slotText}>
-          {game.current_players} / {game.max_players} players
-        </Text>
+        <View style={styles.footerLeft}>
+          <Text style={styles.slotText}>
+            {game.current_players} / {game.max_players} players
+          </Text>
+          {onChat && (
+            <Pressable style={styles.chatBtn} onPress={() => onChat(game)}>
+              <Text style={styles.chatIcon}>💬</Text>
+              {hasUnread && <View style={styles.unreadDot} />}
+            </Pressable>
+          )}
+        </View>
 
         <View style={styles.btnGroup}>
-          {isInProgress ? (
-            isJoined ? (
-              <View style={styles.playingBadge}>
-                <Text style={styles.playingBadgeText}>Playing</Text>
-              </View>
-            ) : (
-              <View style={styles.inProgressBadge}>
-                <Text style={styles.inProgressBadgeText}>In Progress</Text>
-              </View>
-            )
-          ) : onCancel ? (
+          {onCancel ? (
             <>
               {isJoined && (
                 <View style={styles.joinedBadge}>
@@ -139,197 +138,161 @@ export default function GameCard({ game, isJoined, onJoin, onLeave, onCancel }: 
   );
 }
 
-const styles = StyleSheet.create({
-  card: {
-    backgroundColor: "#fff",
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "#e0e0e0",
-    padding: 16,
-    marginBottom: 12,
-  },
-  cardJoined: {
-    borderColor: "#4caf50",
-  },
-  cardInProgress: {
-    borderColor: "#1976d2",
-    borderWidth: 1.5,
-  },
-  inProgressTag: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    backgroundColor: "#e3f2fd",
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 20,
-  },
-  inProgressDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: "#1976d2",
-  },
-  inProgressTagText: {
-    fontSize: 11,
-    fontWeight: "600",
-    color: "#1976d2",
-  },
-  inProgressBadge: {
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 8,
-    backgroundColor: "#e3f2fd",
-  },
-  inProgressBadgeText: {
-    fontSize: 13,
-    fontWeight: "500",
-    color: "#1565c0",
-  },
-  playingBadge: {
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 8,
-    backgroundColor: "#e8f5e9",
-  },
-  playingBadgeText: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#2e7d32",
-  },
-  cardTop: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 8,
-  },
-  sportTag: {
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-    borderRadius: 20,
-  },
-  sportTagText: {
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  timeGroup: {
-    alignItems: "flex-end",
-  },
-  timeRange: {
-    fontSize: 12,
-    fontWeight: "500",
-    color: "#424242",
-  },
-  timeCountdown: {
-    fontSize: 11,
-    color: "#9e9e9e",
-    marginTop: 1,
-  },
-  location: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#212121",
-    marginBottom: 2,
-  },
-  creatorText: {
-    fontSize: 11,
-    color: "#9e9e9e",
-    marginBottom: 4,
-  },
-  metaRow: {
-    flexDirection: "row",
-    marginBottom: 8,
-  },
-  metaText: {
-    fontSize: 12,
-    color: "#757575",
-    borderLeftWidth: 2,
-    borderLeftColor: "#e0e0e0",
-    paddingLeft: 8,
-  },
-  desc: {
-    fontSize: 13,
-    color: "#757575",
-    lineHeight: 18,
-    marginBottom: 10,
-  },
-  barBg: {
-    height: 3,
-    backgroundColor: "#f5f5f5",
-    borderRadius: 2,
-    marginBottom: 10,
-    overflow: "hidden",
-  },
-  barFill: {
-    height: "100%",
-    borderRadius: 2,
-  },
-  footer: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  slotText: {
-    fontSize: 12,
-    color: "#9e9e9e",
-  },
-  btnGroup: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  joinBtn: {
-    paddingHorizontal: 16,
-    paddingVertical: 7,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#bdbdbd",
-  },
-  joinBtnDisabled: {
-    borderColor: "#e0e0e0",
-  },
-  joinBtnText: {
-    fontSize: 13,
-    fontWeight: "500",
-    color: "#212121",
-  },
-  joinBtnTextDisabled: {
-    color: "#bdbdbd",
-  },
-  joinedBadge: {
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 8,
-    backgroundColor: "#e8f5e9",
-  },
-  joinedBadgeText: {
-    fontSize: 13,
-    fontWeight: "500",
-    color: "#2e7d32",
-  },
-  cancelBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 8,
-    backgroundColor: "#fce4ec",
-    borderWidth: 1,
-    borderColor: "#f8bbd0",
-  },
-  cancelBtnText: {
-    fontSize: 13,
-    fontWeight: "500",
-    color: "#c62828",
-  },
-  leaveBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 8,
-    backgroundColor: "#fce4ec",
-    borderWidth: 1,
-    borderColor: "#f8bbd0",
-  },
-  leaveBtnText: {
-    fontSize: 13,
-    fontWeight: "500",
-    color: "#c62828",
-  },
-});
+function makeStyles(c: Colors) {
+  return StyleSheet.create({
+    card: {
+      backgroundColor: c.surface,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: c.border,
+      padding: 16,
+      marginBottom: 12,
+    },
+    cardJoined: {
+      borderColor: "#4caf50",
+    },
+    cardTop: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginBottom: 8,
+    },
+    sportTag: {
+      paddingHorizontal: 10,
+      paddingVertical: 3,
+      borderRadius: 20,
+    },
+    sportTagText: {
+      fontSize: 12,
+      fontWeight: "600",
+    },
+    timeGroup: {
+      alignItems: "flex-end",
+    },
+    timeRange: {
+      fontSize: 12,
+      fontWeight: "500",
+      color: c.textSub,
+    },
+    timeCountdown: {
+      fontSize: 11,
+      color: c.textFaint,
+      marginTop: 1,
+    },
+    location: {
+      fontSize: 16,
+      fontWeight: "600",
+      color: c.text,
+      marginBottom: 2,
+    },
+    creatorText: {
+      fontSize: 11,
+      color: c.textFaint,
+      marginBottom: 4,
+    },
+    metaRow: {
+      flexDirection: "row",
+      marginBottom: 8,
+    },
+    metaText: {
+      fontSize: 12,
+      color: c.textMuted,
+      borderLeftWidth: 2,
+      borderLeftColor: c.border,
+      paddingLeft: 8,
+    },
+    desc: {
+      fontSize: 13,
+      color: c.textMuted,
+      lineHeight: 18,
+      marginBottom: 10,
+    },
+    footer: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+    },
+    footerLeft: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+    },
+    slotText: {
+      fontSize: 12,
+      color: c.textFaint,
+    },
+    chatBtn: {
+      paddingHorizontal: 4,
+      paddingVertical: 2,
+    },
+    chatIcon: { fontSize: 16 },
+    unreadDot: {
+      position: "absolute",
+      top: 0,
+      right: 0,
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+      backgroundColor: "#f44336",
+    },
+    btnGroup: {
+      flexDirection: "row",
+      gap: 8,
+    },
+    joinBtn: {
+      paddingHorizontal: 16,
+      paddingVertical: 7,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: c.border,
+    },
+    joinBtnDisabled: {
+      borderColor: c.borderLight,
+    },
+    joinBtnText: {
+      fontSize: 13,
+      fontWeight: "500",
+      color: c.text,
+    },
+    joinBtnTextDisabled: {
+      color: c.textFaint,
+    },
+    joinedBadge: {
+      paddingHorizontal: 14,
+      paddingVertical: 7,
+      borderRadius: 8,
+      backgroundColor: "#e8f5e9",
+    },
+    joinedBadgeText: {
+      fontSize: 13,
+      fontWeight: "500",
+      color: "#2e7d32",
+    },
+    cancelBtn: {
+      paddingHorizontal: 14,
+      paddingVertical: 7,
+      borderRadius: 8,
+      backgroundColor: "#fce4ec",
+      borderWidth: 1,
+      borderColor: "#f8bbd0",
+    },
+    cancelBtnText: {
+      fontSize: 13,
+      fontWeight: "500",
+      color: "#c62828",
+    },
+    leaveBtn: {
+      paddingHorizontal: 14,
+      paddingVertical: 7,
+      borderRadius: 8,
+      backgroundColor: "#fce4ec",
+      borderWidth: 1,
+      borderColor: "#f8bbd0",
+    },
+    leaveBtnText: {
+      fontSize: 13,
+      fontWeight: "500",
+      color: "#c62828",
+    },
+  });
+}

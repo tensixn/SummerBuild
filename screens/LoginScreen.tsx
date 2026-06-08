@@ -1,11 +1,12 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import {
   View, Text, TextInput, Pressable,
-  StyleSheet, ScrollView, Platform, Alert, TouchableOpacity,
+  StyleSheet, Platform, Alert, TouchableOpacity,
 } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import * as WebBrowser from "expo-web-browser";
 import { supabase } from "../lib/supabase";
+import { useTheme, Colors } from "../lib/theme";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -13,6 +14,8 @@ export default function LoginScreen({ onSwitch, onLogin }: {
   onSwitch: () => void;
   onLogin: () => void;
 }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -84,6 +87,7 @@ export default function LoginScreen({ onSwitch, onLogin }: {
       <TextInput
         style={styles.input}
         placeholder="Email"
+        placeholderTextColor={colors.placeholder}
         value={email}
         onChangeText={setEmail}
         autoCapitalize="none"
@@ -94,6 +98,7 @@ export default function LoginScreen({ onSwitch, onLogin }: {
         <TextInput
           style={styles.passwordInput}
           placeholder="Password"
+          placeholderTextColor={colors.placeholder}
           value={password}
           onChangeText={setPassword}
           secureTextEntry={!showPassword}
@@ -120,38 +125,40 @@ export default function LoginScreen({ onSwitch, onLogin }: {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flexGrow: 1, justifyContent: "center", padding: 24, backgroundColor: "#fff" },
-  title: { fontSize: 28, fontWeight: "700", color: "#212121", marginBottom: 6, textAlign: "center" },
-  subtitle: { fontSize: 14, color: "#9e9e9e", marginBottom: 32, textAlign: "center" },
-  input: {
-    borderWidth: 1, borderColor: "#e0e0e0", borderRadius: 10,
-    padding: 14, fontSize: 15, marginBottom: 14, backgroundColor: "#fafafa",
-  },
-  passwordRow: {
-    flexDirection: "row", alignItems: "center",
-    borderWidth: 1, borderColor: "#e0e0e0", borderRadius: 10,
-    backgroundColor: "#fafafa", marginBottom: 14,
-  },
-  passwordInput: { flex: 1, padding: 14, fontSize: 15 },
-  eyeBtn: { paddingHorizontal: 14 },
-  eyeIcon: { fontSize: 18 },
-  btn: {
-    backgroundColor: "#212121", borderRadius: 10,
-    padding: 16, alignItems: "center", marginBottom: 16,
-  },
-  btnDisabled: { opacity: 0.6 },
-  btnText: { color: "#fff", fontSize: 15, fontWeight: "600" },
-  googleBtn: {
-    flexDirection: "row", alignItems: "center", justifyContent: "center",
-    borderWidth: 1, borderColor: "#e0e0e0", borderRadius: 10,
-    padding: 14, marginBottom: 16, backgroundColor: "#fff", gap: 10,
-  },
-  googleIcon: { fontSize: 16, fontWeight: "700", color: "#4285F4" },
-  googleBtnText: { fontSize: 15, fontWeight: "600", color: "#212121" },
-  dividerRow: { flexDirection: "row", alignItems: "center", marginBottom: 16 },
-  dividerLine: { flex: 1, height: 1, backgroundColor: "#e0e0e0" },
-  dividerText: { marginHorizontal: 12, fontSize: 12, color: "#9e9e9e" },
-  switchText: { textAlign: "center", fontSize: 13, color: "#9e9e9e" },
-  switchLink: { color: "#212121", fontWeight: "600" },
-});
+function makeStyles(c: Colors) {
+  return StyleSheet.create({
+    container: { flexGrow: 1, justifyContent: "center", padding: 24, backgroundColor: c.bg },
+    title: { fontSize: 28, fontWeight: "700", color: c.text, marginBottom: 6, textAlign: "center" },
+    subtitle: { fontSize: 14, color: c.textFaint, marginBottom: 32, textAlign: "center" },
+    input: {
+      borderWidth: 1, borderColor: c.border, borderRadius: 10,
+      padding: 14, fontSize: 15, marginBottom: 14, backgroundColor: c.input, color: c.text,
+    },
+    passwordRow: {
+      flexDirection: "row", alignItems: "center",
+      borderWidth: 1, borderColor: c.border, borderRadius: 10,
+      backgroundColor: c.input, marginBottom: 14,
+    },
+    passwordInput: { flex: 1, padding: 14, fontSize: 15, color: c.text },
+    eyeBtn: { paddingHorizontal: 14 },
+    eyeIcon: { fontSize: 18 },
+    btn: {
+      backgroundColor: c.primary, borderRadius: 10,
+      padding: 16, alignItems: "center", marginBottom: 16,
+    },
+    btnDisabled: { opacity: 0.6 },
+    btnText: { color: c.primaryText, fontSize: 15, fontWeight: "600" },
+    googleBtn: {
+      flexDirection: "row", alignItems: "center", justifyContent: "center",
+      borderWidth: 1, borderColor: c.border, borderRadius: 10,
+      padding: 14, marginBottom: 16, backgroundColor: c.surface, gap: 10,
+    },
+    googleIcon: { fontSize: 16, fontWeight: "700", color: "#4285F4" },
+    googleBtnText: { fontSize: 15, fontWeight: "600", color: c.text },
+    dividerRow: { flexDirection: "row", alignItems: "center", marginBottom: 16 },
+    dividerLine: { flex: 1, height: 1, backgroundColor: c.border },
+    dividerText: { marginHorizontal: 12, fontSize: 12, color: c.textFaint },
+    switchText: { textAlign: "center", fontSize: 13, color: c.textFaint },
+    switchLink: { color: c.text, fontWeight: "600" },
+  });
+}
