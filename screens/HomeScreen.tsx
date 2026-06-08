@@ -14,6 +14,7 @@ type Participant = {
   username: string | null;
   avatar_url: string | null;
   sports_interests: string[] | null;
+  recently_abandoned_at: string | null;
 };
 
 type Profile = {
@@ -21,6 +22,7 @@ type Profile = {
   username: string;
   avatar_url: string | null;
   sports_interests: string[];
+  recently_abandoned_at?: string | null;
 };
 
 type Review = {
@@ -72,10 +74,22 @@ export default function HomeScreen() {
   const [showNotifModal, setShowNotifModal] = useState(false);
   const [showMailbox, setShowMailbox] = useState(false);
   const [showUpcoming, setShowUpcoming] = useState(false);
+  const [leaveConfirmGame, setLeaveConfirmGame] = useState<Game | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [showAdvancedFilter, setShowAdvancedFilter] = useState(false);
+  const [dateFilter, setDateFilter] = useState<string | number | null>(null);
+  const [calendarMonth, setCalendarMonth] = useState<Date>(() => {
+    const d = new Date();
+    return new Date(d.getFullYear(), d.getMonth(), 1);
+  });
 
   const cleanupExpiredGames = useCallback(async () => {
     const now = new Date().toISOString();
-    await supabase.from("games").update({ status: "closed" }).eq("status", "open").not("end_time", "is", null).lt("end_time", now);
+    // Open games that have started but end_time hasn't passed → in_progress
+    await supabase.from("games").update({ status: "in_progress" }).eq("status", "open").not("end_time", "is", null).lt("start_time", now).gt("end_time", now);
+    // In_progress games whose end_time has passed → closed
+    await supabase.from("games").update({ status: "closed" }).eq("status", "in_progress").lt("end_time", now);
+    // Open games with no end_time that have started → closed
     await supabase.from("games").update({ status: "closed" }).eq("status", "open").is("end_time", null).lt("start_time", now);
   }, []);
 
@@ -83,7 +97,7 @@ export default function HomeScreen() {
     setLoading(true);
     await cleanupExpiredGames();
     const { data, error } = await supabase
-      .from("games_with_counts").select("*").eq("status", "open").order("start_time", { ascending: true });
+      .from("games_with_counts").select("*").in("status", ["open", "in_progress"]).order("start_time", { ascending: true });
     if (error) Alert.alert("Error", error.message);
     else setGames(data ?? []);
     setLoading(false);
@@ -137,6 +151,20 @@ export default function HomeScreen() {
     setRatableGames(games ?? []);
   }, []);
 
+  const checkAndClearAbandonedFlag = useCallback(async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { data: profile } = await supabase.from("profiles").select("recently_abandoned_at").eq("id", user.id).single();
+    if (!profile?.recently_abandoned_at) return;
+    const { data: parts } = await supabase.from("game_participants").select("game_id").eq("user_id", user.id);
+    if (!parts || parts.length === 0) return;
+    const gameIds = parts.map((p) => p.game_id);
+    const { data: completedAfter } = await supabase.from("games").select("id").in("id", gameIds).eq("status", "closed").gt("start_time", profile.recently_abandoned_at).limit(1);
+    if (completedAfter && completedAfter.length > 0) {
+      await supabase.from("profiles").update({ recently_abandoned_at: null }).eq("id", user.id);
+    }
+  }, []);
+
   async function markNotificationsRead() {
     const ids = notifications.filter((n) => n.type !== "friend_request").map((n) => n.id);
     if (ids.length > 0) await supabase.from("notifications").update({ is_read: true }).in("id", ids);
@@ -178,7 +206,7 @@ export default function HomeScreen() {
 
   async function onRefresh() {
     setRefreshing(true);
-    await Promise.all([fetchGames(), fetchJoined(), fetchUpcoming(), fetchNotifications(), fetchAllNotifications(), fetchRatableGames()]);
+    await Promise.all([fetchGames(), fetchJoined(), fetchUpcoming(), fetchNotifications(), fetchAllNotifications(), fetchRatableGames(), checkAndClearAbandonedFlag()]);
     setRefreshing(false);
   }
 
@@ -196,6 +224,7 @@ export default function HomeScreen() {
     fetchNotifications();
     fetchAllNotifications();
     fetchRatableGames();
+    checkAndClearAbandonedFlag();
 
     const channel = supabase.channel("games-realtime")
       .on("postgres_changes", { event: "*", schema: "public", table: "games" }, () => { fetchGames(); fetchUpcoming(); })
@@ -203,7 +232,7 @@ export default function HomeScreen() {
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications" }, () => { fetchNotifications(); fetchAllNotifications(); })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [fetchGames, fetchJoined, fetchUpcoming, fetchNotifications, fetchAllNotifications, fetchRatableGames]);
+  }, [fetchGames, fetchJoined, fetchUpcoming, fetchNotifications, fetchAllNotifications, fetchRatableGames, checkAndClearAbandonedFlag]);
 
   async function openGame(game: Game) {
     setSelectedGame(game);
@@ -211,10 +240,10 @@ export default function HomeScreen() {
     const { data: rows } = await supabase.from("game_participants").select("user_name, user_id").eq("game_id", game.id);
     if (!rows || rows.length === 0) { setParticipants([]); setParticipantRatings({}); setLoadingParticipants(false); return; }
     const userIds = rows.map((r) => r.user_id).filter(Boolean) as string[];
-    let profileMap: Record<string, { username: string; avatar_url: string | null; sports_interests: string[] }> = {};
+    let profileMap: Record<string, { username: string; avatar_url: string | null; sports_interests: string[]; recently_abandoned_at: string | null }> = {};
     if (userIds.length > 0) {
       const [profilesRes, ratingsRes] = await Promise.all([
-        supabase.from("profiles").select("id, username, avatar_url, sports_interests").in("id", userIds),
+        supabase.from("profiles").select("id, username, avatar_url, sports_interests, recently_abandoned_at").in("id", userIds),
         supabase.from("ratings").select("rated_id, stars").in("rated_id", userIds),
       ]);
       if (profilesRes.data) profilesRes.data.forEach((p) => { profileMap[p.id] = p; });
@@ -232,7 +261,7 @@ export default function HomeScreen() {
     }
     setParticipants(rows.map((r) => {
       const profile = r.user_id ? profileMap[r.user_id] : null;
-      return { user_name: r.user_name, profile_id: r.user_id ?? null, username: profile?.username ?? null, avatar_url: profile?.avatar_url ?? null, sports_interests: profile?.sports_interests ?? null };
+      return { user_name: r.user_name, profile_id: r.user_id ?? null, username: profile?.username ?? null, avatar_url: profile?.avatar_url ?? null, sports_interests: profile?.sports_interests ?? null, recently_abandoned_at: profile?.recently_abandoned_at ?? null };
     }));
     setLoadingParticipants(false);
   }
@@ -264,6 +293,7 @@ export default function HomeScreen() {
   }
 
   async function joinGame(game: Game) {
+    if (game.status === "in_progress" || new Date(game.start_time) <= new Date()) { Alert.alert("Game in progress", "This game has already started and can no longer be joined."); return; }
     if (game.current_players >= game.max_players) { Alert.alert("Full", "This game is already full."); return; }
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
@@ -274,14 +304,31 @@ export default function HomeScreen() {
     fetchUpcoming();
   }
 
-  async function leaveGame(game: Game) {
+  async function doLeaveGame(game: Game) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
     const { error } = await supabase.from("game_participants").delete().eq("game_id", game.id).eq("user_name", user.email);
     if (error) { Alert.alert("Error", error.message); return; }
     setJoinedIds((prev) => { const next = new Set(prev); next.delete(game.id); return next; });
+    const minsUntilStart = (new Date(game.start_time).getTime() - Date.now()) / 60000;
+    if (minsUntilStart >= 0 && minsUntilStart <= 60) {
+      await supabase.from("profiles").update({ recently_abandoned_at: new Date().toISOString() }).eq("id", user.id);
+    }
     fetchGames();
     fetchUpcoming();
+  }
+
+  function leaveGame(game: Game) {
+    if (game.status === "in_progress" || new Date(game.start_time) <= new Date()) {
+      Alert.alert("Game in progress", "You cannot leave a game that has already started.");
+      return;
+    }
+    const minsUntilStart = (new Date(game.start_time).getTime() - Date.now()) / 60000;
+    if (minsUntilStart >= 0 && minsUntilStart <= 60) {
+      setLeaveConfirmGame(game);
+    } else {
+      doLeaveGame(game);
+    }
   }
 
   function kickPlayer(gameId: string, userId: string, name: string) {
@@ -370,7 +417,42 @@ export default function HomeScreen() {
     return new Date(isoString).toLocaleDateString("en-SG", { weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
   }
 
-  const filtered = filter === "All" ? games : games.filter((g) => g.sport === filter);
+  function buildCalendarRows(month: Date): (Date | null)[][] {
+    const year = month.getFullYear();
+    const m = month.getMonth();
+    const firstDay = new Date(year, m, 1);
+    const lastDay = new Date(year, m + 1, 0);
+    const startDow = (firstDay.getDay() + 6) % 7; // Monday-based (0=Mon)
+    const rows: (Date | null)[][] = [];
+    let currentRow: (Date | null)[] = Array(startDow).fill(null);
+    for (let d = 1; d <= lastDay.getDate(); d++) {
+      currentRow.push(new Date(year, m, d));
+      if (currentRow.length === 7) { rows.push(currentRow); currentRow = []; }
+    }
+    if (currentRow.length > 0) {
+      while (currentRow.length < 7) currentRow.push(null);
+      rows.push(currentRow);
+    }
+    return rows;
+  }
+
+  const filtered = (() => {
+    let result = filter === "All" ? games : games.filter((g) => g.sport === filter);
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase();
+      result = result.filter((g) => g.sport.toLowerCase().includes(q) || g.location.toLowerCase().includes(q));
+    }
+    if (dateFilter !== null) {
+      result = result.filter((g) => {
+        const gameDate = new Date(g.start_time);
+        if (typeof dateFilter === "number") {
+          return gameDate.getDay() === dateFilter;
+        }
+        return gameDate.toDateString() === new Date(dateFilter).toDateString();
+      });
+    }
+    return result;
+  })();
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -457,14 +539,137 @@ export default function HomeScreen() {
                 </View>
               )}
 
-              <Text style={styles.sectionLabel}>Open games</Text>
+              {/* Search + Advanced Filter */}
+              <View style={styles.searchRow}>
+                <View style={styles.searchBar}>
+                  <Text style={styles.searchIcon}>🔍</Text>
+                  <TextInput
+                    style={styles.searchInput}
+                    placeholder="Search by sport or location..."
+                    value={searchQuery}
+                    onChangeText={setSearchQuery}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    placeholderTextColor="#bdbdbd"
+                  />
+                  {searchQuery.length > 0 && (
+                    <Pressable onPress={() => setSearchQuery("")}>
+                      <Text style={styles.searchClear}>✕</Text>
+                    </Pressable>
+                  )}
+                </View>
+                <Pressable
+                  style={[styles.filterToggleBtn, showAdvancedFilter && styles.filterToggleBtnActive]}
+                  onPress={() => setShowAdvancedFilter(!showAdvancedFilter)}
+                >
+                  <Text style={[styles.filterToggleIcon, showAdvancedFilter && styles.filterToggleIconActive]}>
+                    {showAdvancedFilter ? "▲" : "▼"}
+                  </Text>
+                  <Text style={[styles.filterToggleLabel, showAdvancedFilter && styles.filterToggleLabelActive]}>Filter</Text>
+                </Pressable>
+              </View>
+
+              {showAdvancedFilter && (
+                <View style={styles.advancedFilter}>
+                  {/* Filter by day */}
+                  <Text style={styles.advancedFilterLabel}>Filter by day</Text>
+                  <View style={styles.dayFilterRow}>
+                    {([
+                      { label: "Mon", value: 1 },
+                      { label: "Tue", value: 2 },
+                      { label: "Wed", value: 3 },
+                      { label: "Thu", value: 4 },
+                      { label: "Fri", value: 5 },
+                      { label: "Sat", value: 6 },
+                      { label: "Sun", value: 0 },
+                    ] as { label: string; value: number }[]).map(({ label, value }) => (
+                      <Pressable
+                        key={label}
+                        style={[styles.dayChip, typeof dateFilter === "number" && dateFilter === value && styles.dayChipActive]}
+                        onPress={() => setDateFilter(typeof dateFilter === "number" && dateFilter === value ? null : value)}
+                      >
+                        <Text style={[styles.dayChipText, typeof dateFilter === "number" && dateFilter === value && styles.dayChipTextActive]}>{label}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+
+                  {/* Filter by date — inline calendar */}
+                  <Text style={[styles.advancedFilterLabel, { marginTop: 14 }]}>Filter by date</Text>
+                  <View style={styles.calendarContainer}>
+                    {/* Month navigation */}
+                    <View style={styles.calendarHeader}>
+                      <Pressable onPress={() => { const d = new Date(calendarMonth); d.setMonth(d.getMonth() - 1); setCalendarMonth(d); }} style={styles.calNavBtn}>
+                        <Text style={styles.calNavText}>‹</Text>
+                      </Pressable>
+                      <Text style={styles.calMonthLabel}>
+                        {calendarMonth.toLocaleDateString("en-SG", { month: "long", year: "numeric" })}
+                      </Text>
+                      <Pressable onPress={() => { const d = new Date(calendarMonth); d.setMonth(d.getMonth() + 1); setCalendarMonth(d); }} style={styles.calNavBtn}>
+                        <Text style={styles.calNavText}>›</Text>
+                      </Pressable>
+                    </View>
+                    {/* Day-of-week headers */}
+                    <View style={styles.calDayNamesRow}>
+                      {["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"].map((n) => (
+                        <Text key={n} style={styles.calDayName}>{n}</Text>
+                      ))}
+                    </View>
+                    {/* Date grid */}
+                    {buildCalendarRows(calendarMonth).map((week, wi) => (
+                      <View key={wi} style={styles.calWeekRow}>
+                        {week.map((day, di) => {
+                          if (!day) return <View key={di} style={styles.calDaySlot} />;
+                          const iso = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
+                          const isSelected = typeof dateFilter === "string" && new Date(dateFilter).toDateString() === day.toDateString();
+                          const isToday = day.toDateString() === new Date().toDateString();
+                          const isPast = day < new Date(new Date().toDateString());
+                          return (
+                            <Pressable
+                              key={di}
+                              style={styles.calDaySlot}
+                              onPress={() => !isPast && setDateFilter(isSelected ? null : iso)}
+                              disabled={isPast}
+                            >
+                              <View style={[styles.calDayCircle, isSelected && styles.calDayCircleSelected, isToday && !isSelected && styles.calDayCircleToday]}>
+                                <Text style={[styles.calDayText, isSelected && styles.calDayTextSelected, isPast && styles.calDayTextPast, isToday && !isSelected && styles.calDayTextToday]}>
+                                  {day.getDate()}
+                                </Text>
+                              </View>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    ))}
+                  </View>
+
+                  {dateFilter !== null && (
+                    <Pressable onPress={() => setDateFilter(null)} style={styles.clearDateFilter}>
+                      <Text style={styles.clearDateFilterText}>
+                        {typeof dateFilter === "string"
+                          ? `Clear ${new Date(dateFilter).toLocaleDateString("en-SG", { day: "numeric", month: "short" })} ✕`
+                          : "Clear day filter ✕"}
+                      </Text>
+                    </Pressable>
+                  )}
+                </View>
+              )}
+
+              <Text style={styles.sectionLabel}>
+                Open games{(searchQuery.trim() || dateFilter !== null) ? " · filtered" : ""}
+              </Text>
               {loading && <ActivityIndicator style={{ marginTop: 32 }} />}
             </>
           }
           ListEmptyComponent={
             !loading ? (
               <View style={styles.empty}>
-                <Text style={styles.emptyText}>No {filter === "All" ? "" : filter.toLowerCase() + " "}games right now.{"\n"}Create one!</Text>
+                <Text style={styles.emptyText}>
+                  No {filter === "All" ? "" : filter.toLowerCase() + " "}games
+                  {searchQuery.trim() ? ` matching "${searchQuery.trim()}"` : ""}
+                  {dateFilter !== null ? " on the selected day" : ""}.
+                  {"\n"}
+                  {!searchQuery.trim() && dateFilter === null ? "Create one!" : "Try different filters."}
+                </Text>
               </View>
             ) : null
           }
@@ -596,6 +801,11 @@ export default function HomeScreen() {
                 <Text style={styles.profileRatingDisplay}>
                   ★ {participantRatings[profileInDetail.id] ?? "—/4"}
                 </Text>
+                {profileInDetail.recently_abandoned_at && (
+                  <View style={styles.abandonedBadge}>
+                    <Text style={styles.abandonedBadgeText}>Recently Abandoned</Text>
+                  </View>
+                )}
               </View>
               <Text style={styles.sectionLabel}>Sports Interests</Text>
               <View style={styles.sportsRow}>
@@ -641,7 +851,7 @@ export default function HomeScreen() {
                     style={styles.participantCard}
                     onPress={() => {
                       if (!p.profile_id) return;
-                      openParticipantProfile({ id: p.profile_id, username: p.username ?? p.user_name, avatar_url: p.avatar_url ?? null, sports_interests: p.sports_interests ?? [] });
+                      openParticipantProfile({ id: p.profile_id, username: p.username ?? p.user_name, avatar_url: p.avatar_url ?? null, sports_interests: p.sports_interests ?? [], recently_abandoned_at: p.recently_abandoned_at ?? null });
                     }}
                   >
                     {p.avatar_url ? (
@@ -665,6 +875,11 @@ export default function HomeScreen() {
                         {p.profile_id && (
                           <Text style={styles.participantRating}>★ {participantRatings[p.profile_id] ?? "—/4"}</Text>
                         )}
+                        {p.recently_abandoned_at && (
+                          <View style={styles.abandonedBadge}>
+                            <Text style={styles.abandonedBadgeText}>Recently Abandoned</Text>
+                          </View>
+                        )}
                       </View>
                     </View>
                     {currentUserId === selectedGame?.created_by && p.profile_id !== currentUserId ? (
@@ -680,6 +895,45 @@ export default function HomeScreen() {
             </ScrollView>
           )}
         </SafeAreaView>
+      </Modal>
+
+      {/* Leave Confirmation Modal */}
+      <Modal visible={leaveConfirmGame !== null} animationType="fade" transparent>
+        <View style={styles.leaveOverlay}>
+          <View style={styles.leaveModal}>
+            <Text style={styles.leaveModalTitle}>Leave game?</Text>
+            <Text style={styles.leaveModalSport}>
+              {leaveConfirmGame?.sport} · {leaveConfirmGame?.location}
+            </Text>
+
+            <View style={styles.leaveWarningBox}>
+              <Text style={styles.leaveWarningIcon}>⚠️</Text>
+              <Text style={styles.leaveWarningText}>
+                This game starts in less than 1 hour. Leaving now will give you a{" "}
+                <Text style={styles.leaveWarningBold}>Recently Abandoned</Text> badge visible to all players.
+              </Text>
+            </View>
+
+            <View style={styles.leaveHowToBox}>
+              <Text style={styles.leaveHowToTitle}>How to remove the badge</Text>
+              <Text style={styles.leaveHowToText}>
+                Join another game and complete it. The badge disappears automatically once the game ends.
+              </Text>
+            </View>
+
+            <View style={styles.leaveModalBtns}>
+              <Pressable style={styles.leaveStayBtn} onPress={() => setLeaveConfirmGame(null)}>
+                <Text style={styles.leaveStayBtnText}>Stay in game</Text>
+              </Pressable>
+              <Pressable
+                style={styles.leaveConfirmBtn}
+                onPress={() => { const g = leaveConfirmGame; setLeaveConfirmGame(null); if (g) doLeaveGame(g); }}
+              >
+                <Text style={styles.leaveConfirmBtnText}>Leave anyway</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
       </Modal>
 
       {/* Rate Game Modal */}
@@ -905,4 +1159,58 @@ const styles = StyleSheet.create({
   reviewerName: { fontSize: 13, fontWeight: "600", color: "#212121" },
   reviewDate: { fontSize: 11, color: "#9e9e9e" },
   reviewComment: { fontSize: 13, color: "#424242", lineHeight: 20 },
+  abandonedBadge: { backgroundColor: "#fff3e0", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, borderWidth: 1, borderColor: "#ff9800" },
+  abandonedBadgeText: { fontSize: 10, color: "#e65100", fontWeight: "700" },
+  leaveOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.55)", justifyContent: "center", alignItems: "center", padding: 24 },
+  leaveModal: { backgroundColor: "#fff", borderRadius: 18, padding: 24, width: "100%" },
+  leaveModalTitle: { fontSize: 20, fontWeight: "700", color: "#212121", marginBottom: 4 },
+  leaveModalSport: { fontSize: 13, color: "#9e9e9e", marginBottom: 20 },
+  leaveWarningBox: { flexDirection: "row", alignItems: "flex-start", gap: 10, backgroundColor: "#fff8e1", borderRadius: 12, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: "#ffe082" },
+  leaveWarningIcon: { fontSize: 18, marginTop: 1 },
+  leaveWarningText: { flex: 1, fontSize: 14, color: "#5d4037", lineHeight: 20 },
+  leaveWarningBold: { fontWeight: "700", color: "#e65100" },
+  leaveHowToBox: { backgroundColor: "#f5f5f5", borderRadius: 12, padding: 14, marginBottom: 24 },
+  leaveHowToTitle: { fontSize: 13, fontWeight: "700", color: "#424242", marginBottom: 4 },
+  leaveHowToText: { fontSize: 13, color: "#757575", lineHeight: 19 },
+  leaveModalBtns: { flexDirection: "row", gap: 10 },
+  leaveStayBtn: { flex: 1, paddingVertical: 14, borderRadius: 12, borderWidth: 1, borderColor: "#e0e0e0", alignItems: "center", backgroundColor: "#fff" },
+  leaveStayBtnText: { fontSize: 14, fontWeight: "600", color: "#212121" },
+  leaveConfirmBtn: { flex: 1, paddingVertical: 14, borderRadius: 12, backgroundColor: "#e53935", alignItems: "center" },
+  leaveConfirmBtnText: { fontSize: 14, fontWeight: "700", color: "#fff" },
+  searchRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 20, marginBottom: 8 },
+  searchBar: { flex: 1, flexDirection: "row", alignItems: "center", backgroundColor: "#fff", borderWidth: 1, borderColor: "#e0e0e0", borderRadius: 12, paddingHorizontal: 12, paddingVertical: 9 },
+  searchIcon: { fontSize: 14, color: "#9e9e9e", marginRight: 6 },
+  searchInput: { flex: 1, fontSize: 14, color: "#212121" },
+  searchClear: { fontSize: 14, color: "#bdbdbd", paddingLeft: 8 },
+  filterToggleBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 12, borderWidth: 1, borderColor: "#e0e0e0", backgroundColor: "#fff" },
+  filterToggleBtnActive: { backgroundColor: "#212121", borderColor: "#212121" },
+  filterToggleIcon: { fontSize: 10, color: "#757575" },
+  filterToggleIconActive: { color: "#fff" },
+  filterToggleLabel: { fontSize: 13, color: "#757575", fontWeight: "500" },
+  filterToggleLabelActive: { color: "#fff", fontWeight: "600" },
+  advancedFilter: { backgroundColor: "#fff", borderRadius: 12, borderWidth: 1, borderColor: "#e0e0e0", padding: 14, marginBottom: 4 },
+  advancedFilterLabel: { fontSize: 11, fontWeight: "600", letterSpacing: 0.7, textTransform: "uppercase", color: "#bdbdbd", marginBottom: 10 },
+  dayFilterRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, paddingBottom: 2 },
+  dayChip: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, borderWidth: 1, borderColor: "#e0e0e0", backgroundColor: "#fafafa" },
+  dayChipActive: { backgroundColor: "#212121", borderColor: "#212121" },
+  dayChipText: { fontSize: 13, color: "#757575" },
+  dayChipTextActive: { color: "#fff", fontWeight: "600" },
+  clearDateFilter: { marginTop: 12, alignSelf: "center" },
+  clearDateFilterText: { fontSize: 12, color: "#e53935", fontWeight: "500" },
+  calendarContainer: { backgroundColor: "#fafafa", borderRadius: 10, padding: 8, borderWidth: 1, borderColor: "#f0f0f0" },
+  calendarHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
+  calNavBtn: { padding: 4, paddingHorizontal: 10 },
+  calNavText: { fontSize: 20, color: "#212121", fontWeight: "400" },
+  calMonthLabel: { fontSize: 14, fontWeight: "600", color: "#212121" },
+  calDayNamesRow: { flexDirection: "row", marginBottom: 4 },
+  calDayName: { flex: 1, textAlign: "center", fontSize: 11, fontWeight: "600", color: "#9e9e9e" },
+  calWeekRow: { flexDirection: "row" },
+  calDaySlot: { flex: 1, alignItems: "center", paddingVertical: 3 },
+  calDayCircle: { width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center" },
+  calDayCircleSelected: { backgroundColor: "#212121" },
+  calDayCircleToday: { backgroundColor: "#e8f4fd", borderWidth: 1, borderColor: "#1976d2" },
+  calDayText: { fontSize: 13, color: "#212121" },
+  calDayTextSelected: { color: "#fff", fontWeight: "700" },
+  calDayTextPast: { color: "#d0d0d0" },
+  calDayTextToday: { color: "#1976d2", fontWeight: "700" },
 });

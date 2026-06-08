@@ -47,14 +47,23 @@ function SlotBar({ current, max }: { current: number; max: number }) {
 export default function GameCard({ game, isJoined, onJoin, onLeave, onCancel }: Props) {
   const isFull = game.current_players >= game.max_players;
   const sportColor = SPORT_COLORS[game.sport] ?? { bg: "#f5f5f5", text: "#616161" };
+  const isInProgress = game.status === "in_progress";
 
   return (
-    <View style={[styles.card, isJoined && styles.cardJoined]}>
+    <View style={[styles.card, isJoined && !isInProgress && styles.cardJoined, isInProgress && styles.cardInProgress]}>
       <View style={styles.cardTop}>
-        <View style={[styles.sportTag, { backgroundColor: sportColor.bg }]}>
-          <Text style={[styles.sportTagText, { color: sportColor.text }]}>
-            {game.sport}
-          </Text>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <View style={[styles.sportTag, { backgroundColor: sportColor.bg }]}>
+            <Text style={[styles.sportTagText, { color: sportColor.text }]}>
+              {game.sport}
+            </Text>
+          </View>
+          {isInProgress && (
+            <View style={styles.inProgressTag}>
+              <View style={styles.inProgressDot} />
+              <Text style={styles.inProgressTagText}>In Progress</Text>
+            </View>
+          )}
         </View>
         <View style={styles.timeGroup}>
           <Text style={styles.timeRange}>{formatTimeRange(game.start_time, game.end_time)}</Text>
@@ -83,7 +92,17 @@ export default function GameCard({ game, isJoined, onJoin, onLeave, onCancel }: 
         </Text>
 
         <View style={styles.btnGroup}>
-          {onCancel ? (
+          {isInProgress ? (
+            isJoined ? (
+              <View style={styles.playingBadge}>
+                <Text style={styles.playingBadgeText}>Playing</Text>
+              </View>
+            ) : (
+              <View style={styles.inProgressBadge}>
+                <Text style={styles.inProgressBadgeText}>In Progress</Text>
+              </View>
+            )
+          ) : onCancel ? (
             <>
               {isJoined && (
                 <View style={styles.joinedBadge}>
@@ -131,6 +150,52 @@ const styles = StyleSheet.create({
   },
   cardJoined: {
     borderColor: "#4caf50",
+  },
+  cardInProgress: {
+    borderColor: "#1976d2",
+    borderWidth: 1.5,
+  },
+  inProgressTag: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#e3f2fd",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 20,
+  },
+  inProgressDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#1976d2",
+  },
+  inProgressTagText: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#1976d2",
+  },
+  inProgressBadge: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 8,
+    backgroundColor: "#e3f2fd",
+  },
+  inProgressBadgeText: {
+    fontSize: 13,
+    fontWeight: "500",
+    color: "#1565c0",
+  },
+  playingBadge: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 8,
+    backgroundColor: "#e8f5e9",
+  },
+  playingBadgeText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#2e7d32",
   },
   cardTop: {
     flexDirection: "row",
