@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import {
   View, Text, StyleSheet, Alert, Pressable,
   ActivityIndicator, ScrollView, Animated, Dimensions, FlatList,
@@ -9,6 +9,8 @@ import { supabase } from "../lib/supabase";
 import { Game } from "../lib/types";
 import { Court, NTU_COURTS, NTU_CENTER, findCourt } from "../lib/courts";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useTheme, Colors } from "../lib/theme";
+import ChatModal from "../components/ChatModal";
 
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
@@ -64,6 +66,8 @@ type UserLocation = { latitude: number; longitude: number } | null;
 
 export default function MapScreen() {
   const insets = useSafeAreaInsets();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const mapRef = useRef<MapView>(null);
   const sheetAnim = useRef(new Animated.Value(0)).current; // 0 = peek, 1 = full
 
@@ -75,6 +79,7 @@ export default function MapScreen() {
   const [sheetFull, setSheetFull] = useState(false);
   const [loadingGames, setLoadingGames] = useState(true);
   const [sportFilter, setSportFilter] = useState("All");
+  const [chatGame, setChatGame] = useState<Game | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -335,7 +340,7 @@ export default function MapScreen() {
                   {courtGames.length === 0 ? (
                     <Text style={styles.noGamesText}>No games right now.{"\n"}Go to the Games tab to create one.</Text>
                   ) : (
-                    courtGames.map((game) => <GameRow key={game.id} game={game} joined={joinedIds.has(game.id)} onJoin={joinGame} onLeave={leaveGame} />)
+                    courtGames.map((game) => <GameRow key={game.id} game={game} joined={joinedIds.has(game.id)} onJoin={joinGame} onLeave={leaveGame} onChat={(g) => setChatGame(g)} />)
                   )}
                 </ScrollView>
               </>
@@ -355,7 +360,7 @@ export default function MapScreen() {
                   ) : (
                     sortedGames.map((game) => (
                       <Pressable key={game.id} onPress={() => flyToCourt(game)}>
-                        <GameRow game={game} joined={joinedIds.has(game.id)} onJoin={joinGame} onLeave={leaveGame} showCourt />
+                        <GameRow game={game} joined={joinedIds.has(game.id)} onJoin={joinGame} onLeave={leaveGame} onChat={(g) => setChatGame(g)} showCourt />
                       </Pressable>
                     ))
                   )}
@@ -365,13 +370,23 @@ export default function MapScreen() {
           </>
         )}
       </Animated.View>
+
+      <ChatModal
+        visible={!!chatGame}
+        gameId={chatGame?.id ?? ""}
+        gameTitle={chatGame ? `${chatGame.sport} · ${chatGame.location}` : ""}
+        onClose={() => setChatGame(null)}
+      />
     </View>
   );
 }
 
-function GameRow({ game, joined, onJoin, onLeave, showCourt }: {
-  game: Game; joined: boolean; onJoin: (g: Game) => void; onLeave: (g: Game) => void; showCourt?: boolean;
+function GameRow({ game, joined, onJoin, onLeave, onChat, showCourt }: {
+  game: Game; joined: boolean; onJoin: (g: Game) => void; onLeave: (g: Game) => void;
+  onChat: (g: Game) => void; showCourt?: boolean;
 }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const full = game.current_players >= game.max_players;
   const pct = Math.round((game.current_players / game.max_players) * 100);
   const barColor = full ? "#bdbdbd" : pct >= 75 ? "#ff9800" : "#4caf50";
@@ -391,6 +406,9 @@ function GameRow({ game, joined, onJoin, onLeave, showCourt }: {
         <Text style={styles.gameRowSlots}>{game.current_players} / {game.max_players} players · {game.skill_level}</Text>
       </View>
       <View style={styles.gameRowBtns}>
+        <Pressable style={styles.chatBtnRow} onPress={() => onChat(game)}>
+          <Text style={styles.chatIconRow}>💬</Text>
+        </Pressable>
         {joined ? (
           <>
             <View style={styles.joinedBadge}><Text style={styles.joinedBadgeText}>Joined</Text></View>
@@ -408,7 +426,7 @@ function GameRow({ game, joined, onJoin, onLeave, showCourt }: {
   );
 }
 
-const styles = StyleSheet.create({
+function makeStyles(c: Colors) { return StyleSheet.create({
   container: { flex: 1 },
   map: { flex: 1 },
   filterContainer: {
@@ -427,9 +445,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 7,
     borderRadius: 20,
-    backgroundColor: "#ffffffee",
+    backgroundColor: c.surface + "ee",
     borderWidth: 1,
-    borderColor: "#e0e0e0",
+    borderColor: c.border,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.08,
@@ -441,7 +459,7 @@ const styles = StyleSheet.create({
     borderColor: "#212121",
   },
   filterEmoji: { fontSize: 13 },
-  filterText: { fontSize: 13, fontWeight: "500", color: "#424242" },
+  filterText: { fontSize: 13, fontWeight: "500", color: c.textSub },
   filterTextActive: { color: "#fff", fontWeight: "600" },
   myLocBtn: {
     position: "absolute",
@@ -450,7 +468,7 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: "#fff",
+    backgroundColor: c.surface,
     alignItems: "center",
     justifyContent: "center",
     shadowColor: "#000",
@@ -478,7 +496,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: "#fff",
+    backgroundColor: c.surface,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     shadowColor: "#000",
@@ -488,57 +506,59 @@ const styles = StyleSheet.create({
     elevation: 16,
   },
   sheetHandle: {
-    width: 36, height: 4, backgroundColor: "#e0e0e0",
+    width: 36, height: 4, backgroundColor: c.border,
     borderRadius: 2, alignSelf: "center", marginTop: 10, marginBottom: 8,
   },
   peekBar: {
     flexDirection: "row", justifyContent: "space-between",
     alignItems: "center", paddingHorizontal: 20, paddingBottom: 12,
   },
-  peekTitle: { fontSize: 15, fontWeight: "700", color: "#212121" },
-  peekSub: { fontSize: 12, color: "#9e9e9e", marginTop: 2 },
-  peekChevron: { fontSize: 12, color: "#bdbdbd" },
+  peekTitle: { fontSize: 15, fontWeight: "700", color: c.text },
+  peekSub: { fontSize: 12, color: c.textFaint, marginTop: 2 },
+  peekChevron: { fontSize: 12, color: c.placeholder },
   sheetHeader: {
     flexDirection: "row", alignItems: "flex-start",
     paddingHorizontal: 20, marginBottom: 8,
   },
-  sheetTitle: { fontSize: 17, fontWeight: "700", color: "#212121", marginBottom: 2 },
+  sheetTitle: { fontSize: 17, fontWeight: "700", color: c.text, marginBottom: 2 },
   sheetDist: { fontSize: 12, color: "#1565c0", marginBottom: 8, fontWeight: "500" },
   sportsRow: { flexDirection: "row", gap: 6, flexWrap: "wrap" },
   sportTag: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
   sportTagText: { fontSize: 11, fontWeight: "600" },
   closeBtn: {
-    width: 28, height: 28, borderRadius: 14, backgroundColor: "#f5f5f5",
+    width: 28, height: 28, borderRadius: 14, backgroundColor: c.borderLight,
     alignItems: "center", justifyContent: "center", marginLeft: 8,
   },
-  closeBtnText: { fontSize: 12, color: "#757575" },
+  closeBtnText: { fontSize: 12, color: c.textMuted },
   sheetSectionLabel: {
     fontSize: 11, fontWeight: "600", letterSpacing: 0.6,
-    textTransform: "uppercase", color: "#bdbdbd",
+    textTransform: "uppercase", color: c.placeholder,
     marginBottom: 8, paddingHorizontal: 20,
   },
   sheetScroll: { flex: 1, paddingHorizontal: 20 },
-  noGamesText: { fontSize: 13, color: "#bdbdbd", lineHeight: 20, textAlign: "center", marginTop: 16 },
+  noGamesText: { fontSize: 13, color: c.placeholder, lineHeight: 20, textAlign: "center", marginTop: 16 },
   gameRow: {
     flexDirection: "row", justifyContent: "space-between", alignItems: "center",
-    paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "#f5f5f5", gap: 12,
+    paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: c.borderLight, gap: 12,
   },
   gameRowLeft: { flex: 1 },
   gameRowTitleRow: { flexDirection: "row", alignItems: "center", gap: 4, marginBottom: 2 },
   gameRowEmoji: { fontSize: 14 },
-  gameRowSport: { fontSize: 14, fontWeight: "600", color: "#212121" },
-  gameRowCourt: { fontSize: 12, color: "#757575", marginBottom: 2 },
-  gameRowTime: { fontSize: 12, color: "#9e9e9e", marginBottom: 6 },
-  miniBar: { height: 3, backgroundColor: "#f5f5f5", borderRadius: 2, marginBottom: 4, overflow: "hidden" },
+  gameRowSport: { fontSize: 14, fontWeight: "600", color: c.text },
+  gameRowCourt: { fontSize: 12, color: c.textMuted, marginBottom: 2 },
+  gameRowTime: { fontSize: 12, color: c.textFaint, marginBottom: 6 },
+  miniBar: { height: 3, backgroundColor: c.borderLight, borderRadius: 2, marginBottom: 4, overflow: "hidden" },
   miniBarFill: { height: "100%", borderRadius: 2 },
-  gameRowSlots: { fontSize: 11, color: "#9e9e9e" },
+  gameRowSlots: { fontSize: 11, color: c.textFaint },
   gameRowBtns: { flexDirection: "column", gap: 6, alignItems: "flex-end" },
-  joinBtn: { paddingHorizontal: 16, paddingVertical: 7, borderRadius: 8, borderWidth: 1, borderColor: "#bdbdbd" },
-  joinBtnDisabled: { borderColor: "#e0e0e0" },
-  joinBtnText: { fontSize: 13, fontWeight: "500", color: "#212121" },
-  joinBtnTextDisabled: { color: "#bdbdbd" },
+  chatBtnRow: { paddingHorizontal: 4, paddingVertical: 2 },
+  chatIconRow: { fontSize: 16 },
+  joinBtn: { paddingHorizontal: 16, paddingVertical: 7, borderRadius: 8, borderWidth: 1, borderColor: c.border },
+  joinBtnDisabled: { borderColor: c.borderLight },
+  joinBtnText: { fontSize: 13, fontWeight: "500", color: c.text },
+  joinBtnTextDisabled: { color: c.placeholder },
   joinedBadge: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, backgroundColor: "#e8f5e9" },
   joinedBadgeText: { fontSize: 12, fontWeight: "500", color: "#2e7d32" },
   leaveBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, backgroundColor: "#fce4ec", borderWidth: 1, borderColor: "#f8bbd0" },
   leaveBtnText: { fontSize: 12, fontWeight: "500", color: "#c62828" },
-});
+}); }

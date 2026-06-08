@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import {
   View,
   Text,
@@ -13,6 +13,7 @@ import {
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { supabase } from "../lib/supabase";
 import { NTU_LOCATIONS, SKILL_LEVELS, SPORTS, Sport } from "../lib/types";
+import { useTheme, Colors } from "../lib/theme";
 
 type Props = {
   visible: boolean;
@@ -43,6 +44,8 @@ function defaultEnd(start: Date) {
 }
 
 export default function CreateGameModal({ visible, onClose, onCreated }: Props) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const [sport, setSport] = useState<string>("Badminton");
   const [location, setLocation] = useState<string>(NTU_LOCATIONS[0]);
   const [startTime, setStartTime] = useState<Date>(defaultStart);
@@ -340,7 +343,7 @@ export default function CreateGameModal({ visible, onClose, onCreated }: Props) 
           value={description}
           onChangeText={setDescription}
           placeholder="e.g. Need 2 more for doubles"
-          placeholderTextColor="#9e9e9e"
+          placeholderTextColor={colors.placeholder}
           multiline
           maxLength={120}
         />
@@ -359,10 +362,11 @@ export default function CreateGameModal({ visible, onClose, onCreated }: Props) 
   );
 }
 
-const styles = StyleSheet.create({
+function makeStyles(c: Colors) { return StyleSheet.create({
   container: {
     padding: 24,
     paddingBottom: 48,
+    backgroundColor: c.bg,
   },
   header: {
     flexDirection: "row",
@@ -373,18 +377,18 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 20,
     fontWeight: "700",
-    color: "#212121",
+    color: c.text,
   },
   cancelText: {
     fontSize: 16,
-    color: "#757575",
+    color: c.textMuted,
   },
   label: {
     fontSize: 11,
     fontWeight: "600",
     letterSpacing: 0.6,
     textTransform: "uppercase",
-    color: "#9e9e9e",
+    color: c.textFaint,
     marginBottom: 8,
     marginTop: 20,
   },
@@ -401,7 +405,7 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: "#e0e0e0",
+    borderColor: c.border,
   },
   optionChipActive: {
     backgroundColor: "#212121",
@@ -409,40 +413,39 @@ const styles = StyleSheet.create({
   },
   optionText: {
     fontSize: 13,
-    color: "#424242",
+    color: c.textSub,
   },
   optionTextActive: {
     color: "#fff",
     fontWeight: "600",
   },
-  // Date
   dateBtn: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "#e0e0e0",
+    borderColor: c.border,
     borderRadius: 10,
     paddingHorizontal: 14,
     paddingVertical: 12,
-    backgroundColor: "#fafafa",
+    backgroundColor: c.input,
   },
   dateBtnText: {
     fontSize: 15,
-    color: "#212121",
+    color: c.text,
     fontWeight: "500",
   },
   dateBtnCaret: {
     fontSize: 11,
-    color: "#9e9e9e",
+    color: c.textFaint,
   },
   datePickerWrapper: {
     marginTop: 8,
     borderRadius: 12,
     overflow: "hidden",
-    backgroundColor: "#fff",
+    backgroundColor: c.surface,
     borderWidth: 1,
-    borderColor: "#e0e0e0",
+    borderColor: c.border,
   },
   iosDatePicker: {
     height: 180,
@@ -452,19 +455,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderTopWidth: 1,
-    borderTopColor: "#f0f0f0",
+    borderTopColor: c.borderLight,
   },
   dateDoneBtnText: {
     fontSize: 15,
     fontWeight: "600",
-    color: "#212121",
+    color: c.text,
   },
-  // Time
   timeCard: {
     borderWidth: 1,
-    borderColor: "#e0e0e0",
+    borderColor: c.border,
     borderRadius: 12,
-    backgroundColor: "#fafafa",
+    backgroundColor: c.input,
     overflow: "hidden",
   },
   timeRow: {
@@ -477,11 +479,11 @@ const styles = StyleSheet.create({
   timeRowLabel: {
     fontSize: 15,
     fontWeight: "500",
-    color: "#424242",
+    color: c.textSub,
   },
   timeDivider: {
     height: 1,
-    backgroundColor: "#f0f0f0",
+    backgroundColor: c.borderLight,
     marginHorizontal: 14,
   },
   androidTimeBtn: {
@@ -489,30 +491,29 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: "#e0e0e0",
-    backgroundColor: "#fff",
+    borderColor: c.border,
+    backgroundColor: c.surface,
   },
   androidTimeBtnText: {
     fontSize: 15,
     fontWeight: "500",
-    color: "#212121",
+    color: c.text,
   },
-  // Other fields
   input: {
     borderWidth: 1,
-    borderColor: "#e0e0e0",
+    borderColor: c.border,
     borderRadius: 10,
     padding: 12,
     fontSize: 15,
-    color: "#212121",
-    backgroundColor: "#fafafa",
+    color: c.text,
+    backgroundColor: c.input,
   },
   inputMulti: {
     height: 80,
     textAlignVertical: "top",
   },
   createBtn: {
-    backgroundColor: "#212121",
+    backgroundColor: c.primary,
     padding: 16,
     borderRadius: 12,
     alignItems: "center",
@@ -522,8 +523,8 @@ const styles = StyleSheet.create({
     backgroundColor: "#bdbdbd",
   },
   createBtnText: {
-    color: "#fff",
+    color: c.primaryText,
     fontSize: 16,
     fontWeight: "700",
   },
-});
+}); }
