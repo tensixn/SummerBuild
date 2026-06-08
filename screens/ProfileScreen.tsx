@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   View, Text, ScrollView, Pressable, TextInput, Modal,
-  StyleSheet, SafeAreaView, Alert, ActivityIndicator, Image, FlatList, RefreshControl,
+  StyleSheet, Alert, ActivityIndicator, Image, FlatList, RefreshControl,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import * as ImagePicker from "expo-image-picker";
 import { supabase } from "../lib/supabase";
 import { SPORTS } from "../lib/types";
@@ -10,6 +11,54 @@ import { useTheme, Colors } from "../lib/theme";
 import { Switch } from "react-native";
 
 const SPORT_OPTIONS = SPORTS.filter((s) => s !== "All");
+
+function getMondayOfWeek(dateStr: string): string {
+  const d = new Date(dateStr);
+  const day = d.getUTCDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setUTCDate(d.getUTCDate() + diff);
+  return d.toISOString().split("T")[0];
+}
+
+function computeStreak(gameDates: string[]): { current: number; longest: number } {
+  if (gameDates.length === 0) return { current: 0, longest: 0 };
+  const weekSet = new Set(gameDates.map(getMondayOfWeek));
+  const sortedWeeks = Array.from(weekSet).sort();
+  const now = new Date();
+  const todayMonday = getMondayOfWeek(now.toISOString());
+  const lastWeekDate = new Date(now);
+  lastWeekDate.setUTCDate(lastWeekDate.getUTCDate() - 7);
+  const lastWeekMonday = getMondayOfWeek(lastWeekDate.toISOString());
+  const mostRecent = sortedWeeks[sortedWeeks.length - 1];
+  let current = 0;
+  if (mostRecent === todayMonday || mostRecent === lastWeekMonday) {
+    let check = mostRecent;
+    for (let i = sortedWeeks.length - 1; i >= 0; i--) {
+      if (sortedWeeks[i] === check) {
+        current++;
+        const d = new Date(check);
+        d.setUTCDate(d.getUTCDate() - 7);
+        check = d.toISOString().split("T")[0];
+      } else {
+        break;
+      }
+    }
+  }
+  let longest = 0;
+  let run = 1;
+  for (let i = 1; i < sortedWeeks.length; i++) {
+    const d = new Date(sortedWeeks[i - 1]);
+    d.setUTCDate(d.getUTCDate() + 7);
+    if (sortedWeeks[i] === d.toISOString().split("T")[0]) {
+      run++;
+    } else {
+      longest = Math.max(longest, run);
+      run = 1;
+    }
+  }
+  longest = Math.max(longest, run);
+  return { current, longest: Math.max(longest, current) };
+}
 
 type Profile = {
   id: string;
@@ -82,6 +131,10 @@ export default function ProfileScreen() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [changingPassword, setChangingPassword] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [currentStreak, setCurrentStreak] = useState(0);
+  const [longestStreak, setLongestStreak] = useState(0);
+  const [friendCurrentStreak, setFriendCurrentStreak] = useState(0);
+  const [friendLongestStreak, setFriendLongestStreak] = useState(0);
 
   // Friend profile view state
   const [selectedFriend, setSelectedFriend] = useState<Profile | null>(null);
@@ -124,12 +177,26 @@ export default function ProfileScreen() {
     if (!user) return;
     const { data: participations } = await supabase.from("game_participants").select("game_id").eq("user_name", user.email);
     if (participations && participations.length > 0) {
-      const gameIds = participations.map((p) => p.game_id);
+      const gameIds = participations.map((p: any) => p.game_id);
       const { data: games } = await supabase.from("games_with_counts").select("*").in("id", gameIds).order("start_time", { ascending: false });
       if (games) { setJoinedGames(games); setGamesJoined(games.length); }
     } else { setGamesJoined(0); }
     const { data: created } = await supabase.from("games_with_counts").select("*").eq("created_by", user.id).order("start_time", { ascending: false });
     if (created) { setCreatedGames(created); setGamesCreated(created.length); }
+    const { data: allParts } = await supabase.from("game_participants").select("game_id").eq("user_id", user.id);
+    if (allParts && allParts.length > 0) {
+      const allIds = allParts.map((p: any) => p.game_id);
+      const { data: closedGames } = await supabase.from("games").select("end_time").in("id", allIds).eq("status", "closed");
+      if (closedGames) {
+        const dates = closedGames.map((g: any) => g.end_time).filter(Boolean) as string[];
+        const { current, longest } = computeStreak(dates);
+        setCurrentStreak(current);
+        setLongestStreak(longest);
+      }
+    } else {
+      setCurrentStreak(0);
+      setLongestStreak(0);
+    }
   }, []);
 
   const fetchFriends = useCallback(async () => {
@@ -137,7 +204,7 @@ export default function ProfileScreen() {
     if (!user) return;
     const { data: rows } = await supabase.from("friends").select("requester_id, receiver_id").eq("status", "accepted").or(`requester_id.eq.${user.id},receiver_id.eq.${user.id}`);
     if (!rows || rows.length === 0) { setFriends([]); return; }
-    const ids = rows.map((r) => r.requester_id === user.id ? r.receiver_id : r.requester_id);
+    const ids = rows.map((r: any) => r.requester_id === user.id ? r.receiver_id : r.requester_id);
     const { data: profiles } = await supabase.from("profiles").select("id, username, avatar_url, sports_interests, recently_abandoned_at").in("id", ids);
     if (profiles) setFriends(profiles);
   }, []);
@@ -171,6 +238,8 @@ export default function ProfileScreen() {
     setCanRateFriend(false);
     setRatingStars(0);
     setRatingComment("");
+    setFriendCurrentStreak(0);
+    setFriendLongestStreak(0);
 
     const { data: { user } } = await supabase.auth.getUser();
 
@@ -182,7 +251,7 @@ export default function ProfileScreen() {
     if (ratingsRes.data) {
       setFriendRatings(ratingsRes.data);
       if (user) {
-        const mine = ratingsRes.data.find((r) => r.rater_id === user.id) ?? null;
+        const mine = ratingsRes.data.find((r: any) => r.rater_id === user.id) ?? null;
         setMyRatingForFriend(mine);
         if (mine) { setRatingStars(mine.stars); setRatingComment(mine.comment ?? ""); }
       }
@@ -190,17 +259,17 @@ export default function ProfileScreen() {
 
     const { data: participations } = await supabase.from("game_participants").select("game_id").eq("user_name", friend.username);
     if (participations && participations.length > 0) {
-      const ids = participations.map((p) => p.game_id);
+      const ids = participations.map((p: any) => p.game_id);
       const { data: games } = await supabase.from("games_with_counts").select("*").in("id", ids).eq("status", "open").gte("start_time", new Date().toISOString()).order("start_time", { ascending: true });
       if (games) setFriendUpcomingGames(games);
 
       if (user) {
         const { data: myParts } = await supabase.from("game_participants").select("game_id").eq("user_id", user.id);
         if (myParts && myParts.length > 0) {
-          const myIds = myParts.map((p) => p.game_id);
+          const myIds = myParts.map((p: any) => p.game_id);
           const { data: friendParts } = await supabase.from("game_participants").select("game_id").eq("user_id", friend.id).in("game_id", myIds);
           if (friendParts && friendParts.length > 0) {
-            const sharedIds = friendParts.map((p) => p.game_id);
+            const sharedIds = friendParts.map((p: any) => p.game_id);
             const { data: completed } = await supabase.from("games").select("id").in("id", sharedIds).lte("start_time", new Date().toISOString()).limit(1);
             setCanRateFriend((completed?.length ?? 0) > 0);
           }
@@ -208,6 +277,17 @@ export default function ProfileScreen() {
       }
     } else {
       setFriendUpcomingGames([]);
+    }
+    const { data: friendParts } = await supabase.from("game_participants").select("game_id").eq("user_id", friend.id);
+    if (friendParts && friendParts.length > 0) {
+      const friendIds = friendParts.map((p: any) => p.game_id);
+      const { data: friendClosed } = await supabase.from("games").select("end_time").in("id", friendIds).eq("status", "closed");
+      if (friendClosed) {
+        const dates = friendClosed.map((g: any) => g.end_time).filter(Boolean) as string[];
+        const { current, longest } = computeStreak(dates);
+        setFriendCurrentStreak(current);
+        setFriendLongestStreak(longest);
+      }
     }
     setLoadingFriend(false);
   }
@@ -266,7 +346,7 @@ export default function ProfileScreen() {
   async function pickImage() {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") { Alert.alert("Permission needed", "Please allow access to your photo library."); return; }
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, aspect: [1, 1], quality: 0.5, base64: true });
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], allowsEditing: true, aspect: [1, 1], quality: 0.5, base64: true });
     if (result.canceled || !result.assets[0]) return;
     const asset = result.assets[0];
     if (!asset.base64) return;
@@ -343,15 +423,6 @@ export default function ProfileScreen() {
     return new Date(isoString).toLocaleDateString("en-SG", { weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
   }
 
-  function renderStars(count: number, size = 16) {
-    return (
-      <View style={{ flexDirection: "row", gap: 2 }}>
-        {[1, 2, 3, 4].map((s) => (
-          <Text key={s} style={{ fontSize: size, color: s <= count ? "#f59e0b" : "#e0e0e0" }}>★</Text>
-        ))}
-      </View>
-    );
-  }
 
   function avgStars(ratings: Rating[]) {
     if (ratings.length === 0) return null;
@@ -418,6 +489,20 @@ export default function ProfileScreen() {
               <Text style={styles.editBtnText}>{editing ? "Save" : "Edit profile"}</Text>
             </Pressable>
           )}
+        </View>
+
+        <View style={styles.streakCard}>
+          <View style={styles.streakItem}>
+            <Text style={styles.streakIcon}>🔥</Text>
+            <Text style={styles.streakNum}>{currentStreak}</Text>
+            <Text style={styles.streakLabel}>Week Streak</Text>
+          </View>
+          <View style={styles.streakDivider} />
+          <View style={styles.streakItem}>
+            <Text style={styles.streakIcon}>🏆</Text>
+            <Text style={styles.streakNum}>{longestStreak}</Text>
+            <Text style={styles.streakLabel}>Best Streak</Text>
+          </View>
         </View>
 
         <View style={styles.statsRow}>
@@ -672,6 +757,11 @@ export default function ProfileScreen() {
                     <Text style={styles.abandonedBadgeText}>Recently Abandoned</Text>
                   </View>
                 )}
+                <View style={styles.friendStreakRow}>
+                  <Text style={styles.friendStreakText}>🔥 {friendCurrentStreak}-week streak</Text>
+                  <Text style={styles.friendStreakSep}>·</Text>
+                  <Text style={styles.friendStreakText}>🏆 Best: {friendLongestStreak}</Text>
+                </View>
                 {selectedFriend && (
                   <Pressable style={styles.removeFriendBtn} onPress={() => confirmRemoveFriend(selectedFriend)}>
                     <Text style={styles.removeFriendBtnText}>Remove friend</Text>
@@ -779,6 +869,15 @@ function makeStyles(c: Colors) { return StyleSheet.create({
   usernameInput: { fontSize: 20, fontWeight: "700", color: c.text, borderBottomWidth: 2, borderBottomColor: c.text, marginBottom: 12, minWidth: 150, textAlign: "center" },
   editBtn: { paddingHorizontal: 16, paddingVertical: 7, borderRadius: 8, borderWidth: 1, borderColor: c.border },
   editBtnText: { fontSize: 13, fontWeight: "500", color: c.text },
+  streakCard: { flexDirection: "row", backgroundColor: c.surface, borderRadius: 14, borderWidth: 1, borderColor: c.border, marginBottom: 12, paddingVertical: 16 },
+  streakItem: { flex: 1, alignItems: "center" },
+  streakIcon: { fontSize: 20, marginBottom: 4 },
+  streakNum: { fontSize: 22, fontWeight: "700", color: c.text },
+  streakLabel: { fontSize: 11, color: c.textFaint, marginTop: 2 },
+  streakDivider: { width: 1, backgroundColor: c.border },
+  friendStreakRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 6, marginBottom: 4 },
+  friendStreakText: { fontSize: 13, color: c.textMuted },
+  friendStreakSep: { fontSize: 13, color: c.textFaint },
   statsRow: { flexDirection: "row", backgroundColor: c.surface, borderRadius: 14, borderWidth: 1, borderColor: c.border, marginBottom: 24, paddingVertical: 16 },
   statBox: { flex: 1, alignItems: "center" },
   statNum: { fontSize: 22, fontWeight: "700", color: c.text },

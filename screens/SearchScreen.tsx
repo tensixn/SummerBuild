@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo } from "react";
 import {
   View, Text, TextInput, Pressable, FlatList, Modal,
-  StyleSheet, SafeAreaView, ActivityIndicator, Image, Alert, ScrollView,
+  StyleSheet, ActivityIndicator, Image, Alert, ScrollView,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "../lib/supabase";
 import { useTheme, Colors } from "../lib/theme";
 
@@ -41,7 +42,6 @@ export default function SearchScreen() {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [currentUsername, setCurrentUsername] = useState<string | null>(null);
   const [selectedProfile, setSelectedProfile] = useState<SearchResult | null>(null);
   const [profileReviews, setProfileReviews] = useState<Review[]>([]);
@@ -54,7 +54,6 @@ export default function SearchScreen() {
   useEffect(() => {
     supabase.auth.getUser().then(async ({ data: { user } }) => {
       if (user) {
-        setCurrentUserId(user.id);
         const { data: p } = await supabase.from("profiles").select("username").eq("id", user.id).single();
         if (p) setCurrentUsername(p.username);
       }
@@ -83,8 +82,8 @@ export default function SearchScreen() {
       .select("*")
       .or(`requester_id.eq.${user.id},receiver_id.eq.${user.id}`);
 
-    const mapped: SearchResult[] = profiles.map((p) => {
-      const rel = friends?.find((f) => f.requester_id === p.id || f.receiver_id === p.id);
+    const mapped: SearchResult[] = profiles.map((p: any) => {
+      const rel = friends?.find((f: any) => f.requester_id === p.id || f.receiver_id === p.id);
       let friendStatus: FriendStatus = "none";
       if (rel) {
         if (rel.status === "accepted") friendStatus = "accepted";
@@ -112,7 +111,7 @@ export default function SearchScreen() {
     const { data: participations } = await supabase
       .from("game_participants").select("game_id").eq("user_name", item.username);
     if (participations && participations.length > 0) {
-      const gameIds = participations.map((p) => p.game_id);
+      const gameIds = participations.map((p: any) => p.game_id);
       const { data: games } = await supabase
         .from("games_with_counts").select("*").in("id", gameIds).order("start_time", { ascending: false });
       if (games) setJoinedGames(games);
