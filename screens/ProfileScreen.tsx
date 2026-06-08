@@ -14,6 +14,7 @@ type Profile = {
   username: string;
   avatar_url: string | null;
   sports_interests: string[];
+  recently_abandoned_at?: string | null;
 };
 
 type Review = {
@@ -69,6 +70,12 @@ export default function ProfileScreen() {
   const [ratingStars, setRatingStars] = useState(0);
   const [ratingComment, setRatingComment] = useState("");
   const [submittingRating, setSubmittingRating] = useState(false);
+  const [recentlyAbandoned, setRecentlyAbandoned] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [showChangePassword, setShowChangePassword] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [changingPassword, setChangingPassword] = useState(false);
 
   // Friend profile view state
   const [selectedFriend, setSelectedFriend] = useState<Profile | null>(null);
@@ -88,6 +95,7 @@ export default function ProfileScreen() {
       setUsername(data.username ?? "");
       setSelectedSports(data.sports_interests ?? []);
       setAvatarUri(data.avatar_url ?? null);
+      setRecentlyAbandoned(!!data.recently_abandoned_at);
     } else {
       const newProfile = { id: user.id, username: user.email?.split("@")[0] ?? "Player", sports_interests: [], avatar_url: null };
       await supabase.from("profiles").insert(newProfile);
@@ -123,7 +131,7 @@ export default function ProfileScreen() {
     const { data: rows } = await supabase.from("friends").select("requester_id, receiver_id").eq("status", "accepted").or(`requester_id.eq.${user.id},receiver_id.eq.${user.id}`);
     if (!rows || rows.length === 0) { setFriends([]); return; }
     const ids = rows.map((r) => r.requester_id === user.id ? r.receiver_id : r.requester_id);
-    const { data: profiles } = await supabase.from("profiles").select("id, username, avatar_url, sports_interests").in("id", ids);
+    const { data: profiles } = await supabase.from("profiles").select("id, username, avatar_url, sports_interests, recently_abandoned_at").in("id", ids);
     if (profiles) setFriends(profiles);
   }, []);
 
@@ -269,6 +277,19 @@ export default function ProfileScreen() {
     return bytes;
   }
 
+  async function changePassword() {
+    if (newPassword.length < 6) { Alert.alert("Too short", "Password must be at least 6 characters."); return; }
+    if (newPassword !== confirmPassword) { Alert.alert("Mismatch", "Passwords do not match."); return; }
+    setChangingPassword(true);
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    setChangingPassword(false);
+    if (error) { Alert.alert("Error", error.message); return; }
+    Alert.alert("Done", "Your password has been updated.");
+    setNewPassword("");
+    setConfirmPassword("");
+    setShowChangePassword(false);
+  }
+
   async function saveProfile() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
@@ -363,12 +384,19 @@ export default function ProfileScreen() {
           {editing ? (
             <TextInput style={styles.usernameInput} value={username} onChangeText={setUsername} autoFocus />
           ) : (
-            <View style={styles.usernameRow}>
-              <Text style={styles.username}>{profile?.username}</Text>
-              <Text style={styles.usernameRating}>
-                {ownRatings.length > 0 ? `★ ${avgStars(ownRatings)}/4` : "★ —/4"}
-              </Text>
-            </View>
+            <>
+              <View style={styles.usernameRow}>
+                <Text style={styles.username}>{profile?.username}</Text>
+                <Text style={styles.usernameRating}>
+                  {ownRatings.length > 0 ? `★ ${avgStars(ownRatings)}/4` : "★ —/4"}
+                </Text>
+              </View>
+              {recentlyAbandoned && (
+                <View style={styles.abandonedBadge}>
+                  <Text style={styles.abandonedBadgeText}>Recently Abandoned</Text>
+                </View>
+              )}
+            </>
           )}
           {isOwnProfile && (
             <Pressable style={styles.editBtn} onPress={editing ? saveProfile : () => setEditing(true)}>
@@ -465,7 +493,72 @@ export default function ProfileScreen() {
         <Pressable style={styles.signOutBtn} onPress={() => Alert.alert("For real?", "", [{ text: "No", style: "cancel" }, { text: "Yes", style: "destructive", onPress: () => supabase.auth.signOut() }])}>
           <Text style={styles.signOutText}>Sign out</Text>
         </Pressable>
+
+        <Pressable style={styles.signOutBtn} onPress={() => setShowSettings(true)}>
+          <Text style={styles.settingsChangePasswordText}>Settings</Text>
+        </Pressable>
       </ScrollView>
+
+      {/* Settings Modal */}
+      <Modal visible={showSettings} animationType="slide" presentationStyle="pageSheet">
+        <SafeAreaView style={styles.modalSafe}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Settings</Text>
+            <Pressable onPress={() => setShowSettings(false)}>
+              <Text style={styles.modalClose}>✕</Text>
+            </Pressable>
+          </View>
+          <View style={styles.settingsCard}>
+            <Pressable style={styles.settingsRow} onPress={() => { setShowSettings(false); setTimeout(() => setShowChangePassword(true), 300); }}>
+              <Text style={styles.settingsRowLabel}>Change password</Text>
+              <Text style={styles.settingsRowArrow}>›</Text>
+            </Pressable>
+          </View>
+        </SafeAreaView>
+      </Modal>
+
+      {/* Change Password Modal */}
+      <Modal visible={showChangePassword} animationType="slide" presentationStyle="pageSheet">
+        <SafeAreaView style={styles.modalSafe}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Change Password</Text>
+            <Pressable onPress={() => { setShowChangePassword(false); setNewPassword(""); setConfirmPassword(""); }}>
+              <Text style={styles.modalClose}>✕</Text>
+            </Pressable>
+          </View>
+          <ScrollView contentContainerStyle={styles.modalList}>
+            <Text style={styles.pwLabel}>New password</Text>
+            <TextInput
+              style={styles.pwInput}
+              value={newPassword}
+              onChangeText={setNewPassword}
+              secureTextEntry
+              placeholder="At least 6 characters"
+              placeholderTextColor="#bdbdbd"
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <Text style={styles.pwLabel}>Confirm new password</Text>
+            <TextInput
+              style={styles.pwInput}
+              value={confirmPassword}
+              onChangeText={setConfirmPassword}
+              secureTextEntry
+              placeholder="Re-enter new password"
+              placeholderTextColor="#bdbdbd"
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <Pressable
+              style={[styles.pwSaveBtn, (changingPassword || !newPassword || !confirmPassword) && styles.pwSaveBtnDisabled]}
+              onPress={changePassword}
+              disabled={changingPassword || !newPassword || !confirmPassword}
+            >
+              <Text style={styles.pwSaveBtnText}>{changingPassword ? "Saving..." : "Save password"}</Text>
+            </Pressable>
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
 
       {/* Games / Friends Modal */}
       <Modal visible={activeModal !== null && selectedFriend === null} animationType="slide" presentationStyle="pageSheet">
@@ -550,6 +643,11 @@ export default function ProfileScreen() {
                     {friendRatings.length > 0 ? `★ ${avgStars(friendRatings)}/4` : "★ —/4"}
                   </Text>
                 </View>
+                {selectedFriend?.recently_abandoned_at && (
+                  <View style={styles.abandonedBadge}>
+                    <Text style={styles.abandonedBadgeText}>Recently Abandoned</Text>
+                  </View>
+                )}
                 {selectedFriend && (
                   <Pressable style={styles.removeFriendBtn} onPress={() => confirmRemoveFriend(selectedFriend)}>
                     <Text style={styles.removeFriendBtnText}>Remove friend</Text>
@@ -709,6 +807,18 @@ const styles = StyleSheet.create({
   backBtnText: { fontSize: 16, color: "#212121", fontWeight: "500" },
   signOutBtn: { marginTop: 32, paddingVertical: 14, borderRadius: 12, borderWidth: 1, borderColor: "#e0e0e0", alignItems: "center", backgroundColor: "#fff" },
   signOutText: { fontSize: 14, fontWeight: "600", color: "#e53935" },
+  settingsChangePasswordText: { fontSize: 14, fontWeight: "600", color: "#212121" },
+  abandonedBadge: { backgroundColor: "#fff3e0", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, borderWidth: 1, borderColor: "#ff9800", marginTop: 6 },
+  abandonedBadgeText: { fontSize: 11, color: "#e65100", fontWeight: "700" },
+  settingsCard: { margin: 20, backgroundColor: "#fff", borderRadius: 12, borderWidth: 1, borderColor: "#e0e0e0", overflow: "hidden" },
+  settingsRow: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 16 },
+  settingsRowLabel: { flex: 1, fontSize: 15, color: "#212121" },
+  settingsRowArrow: { fontSize: 20, color: "#bdbdbd" },
+  pwLabel: { fontSize: 12, fontWeight: "600", color: "#9e9e9e", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8, marginTop: 4 },
+  pwInput: { backgroundColor: "#fff", borderWidth: 1, borderColor: "#e0e0e0", borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: "#212121", marginBottom: 20 },
+  pwSaveBtn: { marginTop: 8, backgroundColor: "#212121", borderRadius: 12, paddingVertical: 15, alignItems: "center" },
+  pwSaveBtnDisabled: { backgroundColor: "#bdbdbd" },
+  pwSaveBtnText: { color: "#fff", fontWeight: "700", fontSize: 15 },
   modalSafe: { flex: 1, backgroundColor: "#fafafa" },
   modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 20, borderBottomWidth: 1, borderBottomColor: "#f0f0f0" },
   modalTitle: { fontSize: 18, fontWeight: "700", color: "#212121" },
