@@ -119,6 +119,13 @@ export default function HomeScreen() {
     setLoading(false);
   }, [cleanupExpiredGames]);
 
+  const silentRefreshGames = useCallback(async () => {
+    await cleanupExpiredGames();
+    const { data } = await supabase
+      .from("games_with_counts").select("*").in("status", ["open", "in_progress"]).order("start_time", { ascending: true });
+    if (data) setGames(data);
+  }, [cleanupExpiredGames]);
+
   const fetchJoined = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
@@ -251,6 +258,12 @@ export default function HomeScreen() {
     const interval = setInterval(checkUnreadMessages, 5000);
     return () => clearInterval(interval);
   }, [checkUnreadMessages]);
+
+  // Silently refresh game statuses every 60 s so in_progress / closed games update without a manual pull
+  useEffect(() => {
+    const interval = setInterval(silentRefreshGames, 60000);
+    return () => clearInterval(interval);
+  }, [silentRefreshGames]);
 
   async function markGameRead(gameId: string) {
     setUnreadGameIds((prev) => { const next = new Set(prev); next.delete(gameId); return next; });

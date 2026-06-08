@@ -57,14 +57,23 @@ export default function GameCard({ game, isJoined, onJoin, onLeave, onCancel, on
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const isFull = game.current_players >= game.max_players;
   const sportColor = SPORT_COLORS[game.sport] ?? { bg: "#f5f5f5", text: "#616161" };
+  const isInProgress = game.status === "in_progress";
 
   return (
-    <View style={[styles.card, isJoined && styles.cardJoined]}>
+    <View style={[styles.card, isJoined && !isInProgress && styles.cardJoined]}>
       <View style={styles.cardTop}>
-        <View style={[styles.sportTag, { backgroundColor: sportColor.bg }]}>
-          <Text style={[styles.sportTagText, { color: sportColor.text }]}>
-            {game.sport}
-          </Text>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <View style={[styles.sportTag, { backgroundColor: sportColor.bg }]}>
+            <Text style={[styles.sportTagText, { color: sportColor.text }]}>
+              {game.sport}
+            </Text>
+          </View>
+          {isInProgress && (
+            <View style={styles.inProgressPill}>
+              <View style={styles.inProgressDot} />
+              <Text style={styles.inProgressPillText}>In Progress</Text>
+            </View>
+          )}
         </View>
         <View style={styles.timeGroup}>
           <Text style={styles.timeRange}>{formatTimeRange(game.start_time, game.end_time)}</Text>
@@ -101,7 +110,17 @@ export default function GameCard({ game, isJoined, onJoin, onLeave, onCancel, on
         </View>
 
         <View style={styles.btnGroup}>
-          {onCancel ? (
+          {isInProgress ? (
+            isJoined ? (
+              <View style={styles.playingBadge}>
+                <Text style={styles.playingBadgeText}>Playing</Text>
+              </View>
+            ) : (
+              <View style={styles.gameInProgressBtn}>
+                <Text style={styles.gameInProgressBtnText}>Game in Progress</Text>
+              </View>
+            )
+          ) : onCancel ? (
             <>
               {isJoined && (
                 <View style={styles.joinedBadge}>
@@ -150,6 +169,52 @@ function makeStyles(c: Colors) {
     },
     cardJoined: {
       borderColor: "#4caf50",
+    },
+    cardInProgress: {
+      borderColor: "#1976d2",
+      borderWidth: 1.5,
+    },
+    inProgressPill: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+      backgroundColor: "#e3f2fd",
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      borderRadius: 20,
+    },
+    inProgressDot: {
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: "#1976d2",
+    },
+    inProgressPillText: {
+      fontSize: 11,
+      fontWeight: "600",
+      color: "#1976d2",
+    },
+    gameInProgressBtn: {
+      paddingHorizontal: 16,
+      paddingVertical: 7,
+      borderRadius: 8,
+      backgroundColor: "#1976d2",
+    },
+    gameInProgressBtnText: {
+      fontSize: 13,
+      fontWeight: "600",
+      color: "#fff",
+    },
+    playingBadge: {
+      paddingHorizontal: 14,
+      paddingVertical: 7,
+      borderRadius: 8,
+      backgroundColor: "#e8f5e9",
+    },
+    playingBadgeText: {
+      fontSize: 13,
+      fontWeight: "600",
+      color: "#2e7d32",
     },
     cardTop: {
       flexDirection: "row",
