@@ -6,6 +6,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import HomeScreen from "./screens/HomeScreen";
 import MapScreen from "./screens/MapScreen";
 import ProfileScreen from "./screens/ProfileScreen";
+import LeaderboardScreen from "./screens/LeaderboardScreen";
 import LoginScreen from "./screens/LoginScreen";
 import SignupScreen from "./screens/SignupScreen";
 import SearchScreen from "./screens/SearchScreen";
@@ -14,7 +15,7 @@ import { ThemeContext, lightColors, darkColors } from "./lib/theme";
 
 const DARK_KEY = "@dark_mode";
 
-type Tab = "games" | "map" | "profile" | "search";
+type Tab = "games" | "map" | "search" | "leaderboard" | "profile";
 type AuthScreen = "login" | "signup";
 
 export default function App() {
@@ -80,6 +81,7 @@ function AppContent() {
           {tab === "games" ? <HomeScreen /> :
            tab === "map" ? <MapScreen /> :
            tab === "search" ? <SearchScreen /> :
+           tab === "leaderboard" ? <LeaderboardScreen /> :
            <ProfileScreen />}
         </View>
         <View style={[styles.nav, { paddingBottom: insets.bottom || 8, backgroundColor: colors.surface, borderTopColor: colors.borderLight }]}>
@@ -94,6 +96,10 @@ function AppContent() {
           <Pressable style={styles.navItem} onPress={() => setTab("search")}>
             <Text style={[styles.navIcon, tab === "search" && styles.navIconActive]}>🔍</Text>
             <Text style={[styles.navLabel, tab === "search" && { color: colors.text }]}>Search</Text>
+          </Pressable>
+          <Pressable style={styles.navItem} onPress={() => setTab("leaderboard")}>
+            <Text style={[styles.navIcon, tab === "leaderboard" && styles.navIconActive]}>🏆</Text>
+            <Text style={[styles.navLabel, tab === "leaderboard" && { color: colors.text }]}>Leaderboard</Text>
           </Pressable>
           <Pressable style={styles.navItem} onPress={() => setTab("profile")}>
             <Text style={[styles.navIcon, tab === "profile" && styles.navIconActive]}>👤</Text>
