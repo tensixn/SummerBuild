@@ -45,9 +45,20 @@ type Notification = {
   related_user_id: string | null;
 };
 
+async function awardCoins(userId: string, amount: number, reason: string, gameId: string) {
+  const { error } = await supabase.from("coin_transactions").insert({
+    user_id: userId, amount, reason, game_id: gameId,
+  });
+  // 23505 = unique violation (already awarded) — skip
+  if (error?.code === "23505") return;
+  // Any other error (e.g. table not yet created) — still award coins directly
+  const { data: p } = await supabase.from("profiles").select("coins").eq("id", userId).single();
+  await supabase.from("profiles").update({ coins: (p?.coins ?? 0) + amount }).eq("id", userId);
+}
+
 export default function HomeScreen() {
-  const { colors } = useTheme();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const { colors, isDark } = useTheme();
+  const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
   const [games, setGames] = useState<Game[]>([]);
   const [joinedIds, setJoinedIds] = useState<Set<string>>(new Set());
   // derived from games + joinedIds — no separate fetch needed
@@ -103,8 +114,24 @@ export default function HomeScreen() {
     const now = new Date().toISOString();
     // Open games that have started but end_time hasn't passed → in_progress
     await supabase.from("games").update({ status: "in_progress" }).eq("status", "open").not("end_time", "is", null).lt("start_time", now).gt("end_time", now);
-    // In_progress games whose end_time has passed → closed
-    await supabase.from("games").update({ status: "closed" }).eq("status", "in_progress").lt("end_time", now);
+    // In_progress games whose end_time has passed → closed; capture for coin awards
+    const { data: newlyClosed } = await supabase.from("games").update({ status: "closed" }).eq("status", "in_progress").lt("end_time", now).select("id, created_by");
+    if (newlyClosed && newlyClosed.length > 0) {
+      (async () => {
+        for (const game of newlyClosed as any[]) {
+          const { data: parts } = await supabase.from("game_participants").select("user_id").eq("game_id", game.id).not("user_id", "is", null);
+          const partList = (parts ?? []) as any[];
+          const othersJoined = partList.some((p) => p.user_id && p.user_id !== game.created_by);
+          // Only award coins if the game had more than just the host
+          if (othersJoined) {
+            for (const p of partList) {
+              if (p.user_id) await awardCoins(p.user_id, 2, "game_complete", game.id);
+            }
+            if (game.created_by) await awardCoins(game.created_by, 5, "host_complete", game.id);
+          }
+        }
+      })();
+    }
     // Open games with no end_time that have started → closed
     await supabase.from("games").update({ status: "closed" }).eq("status", "open").is("end_time", null).lt("start_time", now);
   }, []);
@@ -434,13 +461,12 @@ export default function HomeScreen() {
     if (!user) return;
     const { data: parts } = await supabase.from("game_participants").select("user_id").eq("game_id", game.id).neq("user_id", user.id);
     const userIds = (parts ?? []).map((p: any) => p.user_id).filter(Boolean) as string[];
-    if (userIds.length === 0) {
-      await supabase.from("rated_game_completions").insert({ user_id: user.id, game_id: game.id });
-      fetchRatableGames();
-      return;
+    let profiles: Profile[] = [];
+    if (userIds.length > 0) {
+      const { data } = await supabase.from("profiles").select("id, username, avatar_url, sports_interests").in("id", userIds);
+      profiles = data ?? [];
     }
-    const { data: profiles } = await supabase.from("profiles").select("id, username, avatar_url, sports_interests").in("id", userIds);
-    setRateParticipants(profiles ?? []);
+    setRateParticipants(profiles);
     setRateGame(game);
     setRatingSelections({});
     setReviewSelections({});
@@ -468,7 +494,12 @@ export default function HomeScreen() {
         }))
       );
     }
-    await supabase.from("rated_game_completions").insert({ user_id: user.id, game_id: rateGame.id });
+    // Insert completion; award 1 coin only if fresh rating AND other players were present
+    const { error: completionErr } = await supabase.from("rated_game_completions").insert({ user_id: user.id, game_id: rateGame.id });
+    if (!completionErr && rateParticipants.length > 0) {
+      const { data: prof } = await supabase.from("profiles").select("coins").eq("id", user.id).single();
+      await supabase.from("profiles").update({ coins: (prof?.coins ?? 0) + 1 }).eq("id", user.id);
+    }
     setSubmittingGameRating(false);
     setShowRateModal(false);
     setRateGame(null);
@@ -1080,6 +1111,13 @@ export default function HomeScreen() {
             </Pressable>
           </View>
           <ScrollView contentContainerStyle={styles.modalContent}>
+            {rateParticipants.length === 0 ? (
+              <View style={styles.rateEmptyBox}>
+                <Text style={styles.rateEmptyIcon}>🎉</Text>
+                <Text style={styles.rateEmptyText}>You were the only player!</Text>
+                <Text style={styles.rateEmptySub}>Nothing to rate — tap Done to complete.</Text>
+              </View>
+            ) : null}
             {rateParticipants.map((p) => (
               <View key={p.id} style={styles.ratePlayerCard}>
                 <View style={styles.ratePlayerLeft}>
@@ -1110,7 +1148,14 @@ export default function HomeScreen() {
             ))}
           </ScrollView>
           <View style={styles.rateFooter}>
-            <Pressable style={styles.rateDoneBtn} onPress={submitGameRatings} disabled={submittingGameRating}>
+            {rateParticipants.length > 0 && !Object.values(ratingSelections).some((s) => s > 0) && (
+              <Text style={styles.rateHintText}>Rate at least one player to continue</Text>
+            )}
+            <Pressable
+              style={[styles.rateDoneBtn, rateParticipants.length > 0 && !Object.values(ratingSelections).some((s) => s > 0) && styles.rateDoneBtnDisabled]}
+              onPress={submitGameRatings}
+              disabled={submittingGameRating || (rateParticipants.length > 0 && !Object.values(ratingSelections).some((s) => s > 0))}
+            >
               <Text style={styles.rateDoneBtnText}>{submittingGameRating ? "Submitting..." : "Done Rating"}</Text>
             </Pressable>
           </View>
@@ -1175,7 +1220,7 @@ export default function HomeScreen() {
   );
 }
 
-function makeStyles(c: Colors) { return StyleSheet.create({
+function makeStyles(c: Colors, isDark = false) { return StyleSheet.create({
   safe: { flex: 1, backgroundColor: c.bg },
   container: { flex: 1, paddingHorizontal: 20 },
   header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingTop: 16, marginBottom: 2 },
@@ -1215,11 +1260,11 @@ function makeStyles(c: Colors) { return StyleSheet.create({
   notifOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center", padding: 24 },
   notifModal: { backgroundColor: c.surface, borderRadius: 16, padding: 24, width: "100%" },
   notifModalTitle: { fontSize: 18, fontWeight: "700", color: c.text, marginBottom: 16 },
-  notifItem: { backgroundColor: "#fff3e0", borderRadius: 10, padding: 12, marginBottom: 10, borderWidth: 1, borderColor: "#ffe0b2" },
+  notifItem: { backgroundColor: isDark ? "rgba(255,152,0,0.12)" : "#fff3e0", borderRadius: 10, padding: 12, marginBottom: 10, borderWidth: 1, borderColor: isDark ? "rgba(255,152,0,0.25)" : "#ffe0b2" },
   notifMessage: { fontSize: 13, color: c.text, lineHeight: 20, marginBottom: 4 },
   notifMessageRead: { color: c.textFaint },
   notifTime: { fontSize: 11, color: c.textFaint },
-  notifItemRating: { backgroundColor: "#fffbeb", borderColor: "#fde68a" },
+  notifItemRating: { backgroundColor: isDark ? "rgba(245,158,11,0.12)" : "#fffbeb", borderColor: isDark ? "rgba(245,158,11,0.28)" : "#fde68a" },
   notifTypeIcon: { fontSize: 12, fontWeight: "700", color: "#f59e0b", marginBottom: 4 },
   mailboxItemRating: { backgroundColor: "#fffbeb", borderColor: "#fde68a" },
   notifDismissBtn: { backgroundColor: c.primary, borderRadius: 10, padding: 14, alignItems: "center", marginTop: 8 },
@@ -1273,7 +1318,13 @@ function makeStyles(c: Colors) { return StyleSheet.create({
   rateReviewInput: { marginTop: 10, borderWidth: 1, borderColor: c.border, borderRadius: 8, padding: 10, fontSize: 13, backgroundColor: c.input, minHeight: 40, color: c.text },
   rateFooter: { padding: 20, borderTopWidth: 1, borderTopColor: c.borderLight },
   rateDoneBtn: { backgroundColor: c.primary, borderRadius: 12, padding: 16, alignItems: "center" },
+  rateDoneBtnDisabled: { backgroundColor: c.borderLight, opacity: 0.6 },
   rateDoneBtnText: { color: c.primaryText, fontWeight: "700", fontSize: 15 },
+  rateHintText: { fontSize: 12, color: c.textMuted, textAlign: "center", marginBottom: 8 },
+  rateEmptyBox: { alignItems: "center", paddingVertical: 40 },
+  rateEmptyIcon: { fontSize: 40, marginBottom: 12 },
+  rateEmptyText: { fontSize: 16, fontWeight: "600", color: c.text, marginBottom: 6 },
+  rateEmptySub: { fontSize: 13, color: c.textFaint, textAlign: "center" },
   participantArrow: { fontSize: 20, color: c.placeholder },
   profileHeader: { alignItems: "center", marginBottom: 24 },
   profileAvatar: { width: 80, height: 80, borderRadius: 40, marginBottom: 12 },
@@ -1306,7 +1357,7 @@ function makeStyles(c: Colors) { return StyleSheet.create({
   leaveModal: { backgroundColor: c.surface, borderRadius: 18, padding: 24, width: "100%" },
   leaveModalTitle: { fontSize: 20, fontWeight: "700", color: c.text, marginBottom: 4 },
   leaveModalSport: { fontSize: 13, color: c.textFaint, marginBottom: 20 },
-  leaveWarningBox: { flexDirection: "row", alignItems: "flex-start", gap: 10, backgroundColor: "#fff8e1", borderRadius: 12, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: "#ffe082" },
+  leaveWarningBox: { flexDirection: "row", alignItems: "flex-start", gap: 10, backgroundColor: isDark ? "rgba(255,224,130,0.1)" : "#fff8e1", borderRadius: 12, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: isDark ? "rgba(255,224,130,0.22)" : "#ffe082" },
   leaveWarningIcon: { fontSize: 18, marginTop: 1 },
   leaveWarningText: { flex: 1, fontSize: 14, color: "#5d4037", lineHeight: 20 },
   leaveWarningBold: { fontWeight: "700", color: "#e65100" },

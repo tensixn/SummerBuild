@@ -12,6 +12,18 @@ import { Switch } from "react-native";
 
 const SPORT_OPTIONS = SPORTS.filter((s) => s !== "All");
 
+const AVATAR_BORDERS = [
+  { id: "bronze",    name: "Bronze",    price: 50,  color: "#cd7f32" },
+  { id: "silver",    name: "Silver",    price: 100, color: "#a8a8a8" },
+  { id: "neon_blue", name: "Neon Blue", price: 150, color: "#00b4ff" },
+  { id: "neon_pink", name: "Neon Pink", price: 150, color: "#ff2d78" },
+  { id: "emerald",   name: "Emerald",   price: 175, color: "#2ecc71" },
+  { id: "gold",      name: "Gold",      price: 200, color: "#ffd700" },
+  { id: "ruby",      name: "Ruby",      price: 250, color: "#e74c3c" },
+  { id: "diamond",   name: "Diamond",   price: 500, color: "#a8e6f0" },
+  { id: "champion",  name: "Champion",  price: 750, color: "#ff6b35" },
+];
+
 function getMondayOfWeek(dateStr: string): string {
   const d = new Date(dateStr);
   const day = d.getUTCDay();
@@ -66,6 +78,8 @@ type Profile = {
   avatar_url: string | null;
   sports_interests: string[];
   recently_abandoned_at?: string | null;
+  coins?: number;
+  equipped_border_id?: string | null;
 };
 
 type Review = {
@@ -131,6 +145,11 @@ export default function ProfileScreen() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [changingPassword, setChangingPassword] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [coins, setCoins] = useState(0);
+  const [equippedBorderId, setEquippedBorderId] = useState<string | null>(null);
+  const [ownedBorderIds, setOwnedBorderIds] = useState<Set<string>>(new Set());
+  const [showShop, setShowShop] = useState(false);
+  const [purchasingBorder, setPurchasingBorder] = useState(false);
   const [currentStreak, setCurrentStreak] = useState(0);
   const [longestStreak, setLongestStreak] = useState(0);
   const [friendCurrentStreak, setFriendCurrentStreak] = useState(0);
@@ -156,6 +175,10 @@ export default function ProfileScreen() {
       setAvatarUri(data.avatar_url ?? null);
       setRecentlyAbandoned(!!data.recently_abandoned_at);
       setAbandonedCount(data.abandoned_count ?? 0);
+      setCoins(data.coins ?? 0);
+      setEquippedBorderId(data.equipped_border_id ?? null);
+      const { data: borders } = await supabase.from("user_borders").select("border_id").eq("user_id", user.id);
+      if (borders) setOwnedBorderIds(new Set(borders.map((b: any) => b.border_id)));
     } else {
       const newProfile = { id: user.id, username: user.email?.split("@")[0] ?? "Player", sports_interests: [], avatar_url: null };
       await supabase.from("profiles").insert(newProfile);
@@ -419,6 +442,27 @@ export default function ProfileScreen() {
     setShowChangePassword(false);
   }
 
+  async function buyBorder(borderId: string, price: number) {
+    if (coins < price) { Alert.alert("Not enough coins", `You need ${price - coins} more coins.`); return; }
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    setPurchasingBorder(true);
+    const { error } = await supabase.from("user_borders").insert({ user_id: user.id, border_id: borderId });
+    if (!error) {
+      await supabase.from("profiles").update({ coins: coins - price }).eq("id", user.id);
+      setCoins((c) => c - price);
+      setOwnedBorderIds((prev) => new Set([...prev, borderId]));
+    }
+    setPurchasingBorder(false);
+  }
+
+  async function equipBorder(borderId: string | null) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    await supabase.from("profiles").update({ equipped_border_id: borderId }).eq("id", user.id);
+    setEquippedBorderId(borderId);
+  }
+
   async function saveProfile() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
@@ -492,13 +536,20 @@ export default function ProfileScreen() {
 
         <View style={styles.header}>
           <Pressable onPress={editing ? pickImage : undefined} style={styles.avatarWrapper}>
-            {avatarUri ? (
-              <Image source={{ uri: avatarUri }} style={styles.avatarImage} />
-            ) : (
-              <View style={styles.avatar}>
-                <Text style={styles.avatarText}>{(profile?.username ?? "?")[0].toUpperCase()}</Text>
-              </View>
-            )}
+            {(() => {
+              const border = AVATAR_BORDERS.find(b => b.id === equippedBorderId);
+              return (
+                <View style={[styles.avatarRing, border ? { borderColor: border.color, borderWidth: 4 } : { borderWidth: 0 }]}>
+                  {avatarUri ? (
+                    <Image source={{ uri: avatarUri }} style={styles.avatarImage} />
+                  ) : (
+                    <View style={styles.avatar}>
+                      <Text style={styles.avatarText}>{(profile?.username ?? "?")[0].toUpperCase()}</Text>
+                    </View>
+                  )}
+                </View>
+              );
+            })()}
             {editing && (
               <View style={styles.avatarOverlay}>
                 <Text style={styles.avatarOverlayText}>📷</Text>
@@ -521,9 +572,14 @@ export default function ProfileScreen() {
             </View>
           )}
           {isOwnProfile && (
-            <Pressable style={styles.editBtn} onPress={editing ? saveProfile : () => setEditing(true)}>
-              <Text style={styles.editBtnText}>{editing ? "Save" : "Edit profile"}</Text>
-            </Pressable>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <View style={styles.coinChip}>
+                <Text style={styles.coinChipText}>💰 {coins}</Text>
+              </View>
+              <Pressable style={styles.editBtn} onPress={editing ? saveProfile : () => setEditing(true)}>
+                <Text style={styles.editBtnText}>{editing ? "Save" : "Edit profile"}</Text>
+              </Pressable>
+            </View>
           )}
         </View>
 
@@ -631,6 +687,10 @@ export default function ProfileScreen() {
           )
         )}
 
+        <Pressable style={styles.signOutBtn} onPress={() => setShowShop(true)}>
+          <Text style={styles.shopBtnText}>🛍 Shop</Text>
+        </Pressable>
+
         <Pressable style={styles.signOutBtn} onPress={() => setShowSettings(true)}>
           <Text style={styles.settingsChangePasswordText}>Settings</Text>
         </Pressable>
@@ -639,6 +699,82 @@ export default function ProfileScreen() {
           <Text style={styles.signOutText}>Sign out</Text>
         </Pressable>
       </ScrollView>
+
+      {/* Shop Modal */}
+      <Modal visible={showShop} animationType="slide" presentationStyle="pageSheet">
+        <SafeAreaView style={styles.modalSafe}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>🛍 Avatar Borders</Text>
+            <View style={styles.coinChip}>
+              <Text style={styles.coinChipText}>💰 {coins}</Text>
+            </View>
+            <Pressable onPress={() => setShowShop(false)}>
+              <Text style={styles.modalClose}>✕</Text>
+            </Pressable>
+          </View>
+          <ScrollView contentContainerStyle={styles.shopScrollContent}>
+            {/* Earn coins guide */}
+            <View style={styles.earnCard}>
+              <Text style={styles.earnTitle}>How to earn coins</Text>
+              <View style={styles.earnRow}>
+                <Text style={styles.earnIcon}>🏁</Text>
+                <Text style={styles.earnDesc}>Finish a game as participant</Text>
+                <Text style={styles.earnAmount}>+2</Text>
+              </View>
+              <View style={styles.earnDivider} />
+              <View style={styles.earnRow}>
+                <Text style={styles.earnIcon}>🎮</Text>
+                <Text style={styles.earnDesc}>Host a game to completion</Text>
+                <Text style={styles.earnAmount}>+5</Text>
+              </View>
+              <View style={styles.earnDivider} />
+              <View style={styles.earnRow}>
+                <Text style={styles.earnIcon}>⭐</Text>
+                <Text style={styles.earnDesc}>Rate a completed game</Text>
+                <Text style={styles.earnAmount}>+1</Text>
+              </View>
+            </View>
+
+            {/* Borders grid */}
+            <Text style={styles.shopSectionLabel}>Available Borders</Text>
+            <View style={styles.shopGrid}>
+            {AVATAR_BORDERS.map((border) => {
+              const owned = ownedBorderIds.has(border.id);
+              const equipped = equippedBorderId === border.id;
+              const canAfford = coins >= border.price;
+              return (
+                <View key={border.id} style={[styles.borderCard, equipped && styles.borderCardEquipped]}>
+                  <View style={[styles.borderPreviewOuter, { borderColor: border.color }]}>
+                    <View style={styles.borderPreviewInner} />
+                  </View>
+                  <Text style={styles.borderName}>{border.name}</Text>
+                  <Text style={styles.borderPrice}>💰 {border.price}</Text>
+                  {equipped ? (
+                    <Pressable style={styles.unequipBtn} onPress={() => equipBorder(null)}>
+                      <Text style={styles.unequipBtnText}>Unequip</Text>
+                    </Pressable>
+                  ) : owned ? (
+                    <Pressable style={styles.equipBtn} onPress={() => equipBorder(border.id)}>
+                      <Text style={styles.equipBtnText}>Equip</Text>
+                    </Pressable>
+                  ) : (
+                    <Pressable
+                      style={[styles.buyBtn, !canAfford && styles.buyBtnDisabled]}
+                      onPress={() => canAfford && buyBorder(border.id, border.price)}
+                      disabled={!canAfford || purchasingBorder}
+                    >
+                      <Text style={[styles.buyBtnText, !canAfford && styles.buyBtnTextDisabled]}>
+                        {canAfford ? "Buy" : `Need ${border.price - coins} more`}
+                      </Text>
+                    </Pressable>
+                  )}
+                </View>
+              );
+            })}
+            </View>
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
 
       {/* Settings Modal */}
       <Modal visible={showSettings} animationType="slide" presentationStyle="pageSheet">
@@ -996,4 +1132,37 @@ function makeStyles(c: Colors) { return StyleSheet.create({
   gameCardLocation: { fontSize: 14, color: c.textSub, marginBottom: 2 },
   gameCardDate: { fontSize: 11, color: "#1565c0", marginBottom: 4 },
   gameCardMeta: { fontSize: 12, color: c.textFaint },
+  // Avatar border ring
+  avatarRing: { borderRadius: 44, overflow: "hidden" },
+  // Coin chip
+  coinChip: { backgroundColor: "#fff8e1", borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: "#ffe082" },
+  coinChipText: { fontSize: 13, fontWeight: "700", color: "#e65100" },
+  // Shop button
+  shopBtnText: { fontSize: 14, fontWeight: "600", color: "#1976d2" },
+  // Shop layout
+  shopScrollContent: { padding: 16, paddingBottom: 40 },
+  shopSectionLabel: { fontSize: 13, fontWeight: "700", color: c.textMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 12, marginTop: 4 },
+  shopGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12, justifyContent: "space-between" },
+  // Earn card
+  earnCard: { backgroundColor: c.surface, borderRadius: 14, borderWidth: 1, borderColor: c.border, padding: 16, marginBottom: 20 },
+  earnTitle: { fontSize: 13, fontWeight: "700", color: c.textMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 12 },
+  earnRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  earnIcon: { fontSize: 18, width: 28, textAlign: "center" },
+  earnDesc: { flex: 1, fontSize: 14, color: c.text },
+  earnAmount: { fontSize: 15, fontWeight: "700", color: "#e65100" },
+  earnDivider: { height: 1, backgroundColor: c.borderLight, marginVertical: 10 },
+  borderCard: { width: "47%", backgroundColor: c.surface, borderRadius: 14, borderWidth: 1, borderColor: c.border, padding: 14, alignItems: "center", gap: 8 },
+  borderCardEquipped: { borderColor: "#1976d2", borderWidth: 2 },
+  borderPreviewOuter: { width: 64, height: 64, borderRadius: 32, borderWidth: 5, justifyContent: "center", alignItems: "center" },
+  borderPreviewInner: { width: 48, height: 48, borderRadius: 24, backgroundColor: "#e0e0e0" },
+  borderName: { fontSize: 14, fontWeight: "700", color: c.text },
+  borderPrice: { fontSize: 12, color: c.textFaint },
+  buyBtn: { backgroundColor: "#1976d2", borderRadius: 8, paddingHorizontal: 16, paddingVertical: 7, width: "100%", alignItems: "center" },
+  buyBtnDisabled: { backgroundColor: c.borderLight },
+  buyBtnText: { color: "#fff", fontSize: 13, fontWeight: "600" },
+  buyBtnTextDisabled: { color: c.textFaint },
+  equipBtn: { backgroundColor: "#e8f5e9", borderRadius: 8, paddingHorizontal: 16, paddingVertical: 7, width: "100%", alignItems: "center", borderWidth: 1, borderColor: "#a5d6a7" },
+  equipBtnText: { color: "#2e7d32", fontSize: 13, fontWeight: "600" },
+  unequipBtn: { backgroundColor: c.borderLight, borderRadius: 8, paddingHorizontal: 16, paddingVertical: 7, width: "100%", alignItems: "center" },
+  unequipBtnText: { color: c.textMuted, fontSize: 13, fontWeight: "600" },
 }); }
