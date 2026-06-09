@@ -631,7 +631,7 @@ export default function ProfileScreen() {
           <Text style={styles.settingsChangePasswordText}>Settings</Text>
         </Pressable>
 
-        <Pressable style={styles.signOutBtn} onPress={() => Alert.alert("For real?", "", [{ text: "No", style: "cancel" }, { text: "Yes", style: "destructive", onPress: () => supabase.auth.signOut() }])}>
+        <Pressable style={styles.signOutBtn} onPress={() => Alert.alert("Sign out?", "Are you sure you want to sign out?", [{ text: "Cancel", style: "cancel" }, { text: "Sign out", style: "destructive", onPress: () => supabase.auth.signOut() }])}>
           <Text style={styles.signOutText}>Sign out</Text>
         </Pressable>
       </ScrollView>
