@@ -3,6 +3,7 @@ import {
   View, Text, TextInput, Pressable,
   StyleSheet, Alert, TouchableOpacity,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { supabase } from "../lib/supabase";
 import { useTheme, Colors } from "../lib/theme";
@@ -73,7 +74,7 @@ export default function SignupScreen({ onSwitch, onSignup }: {
           secureTextEntry={!showPassword}
         />
         <TouchableOpacity style={styles.eyeBtn} onPress={() => setShowPassword(p => !p)}>
-          <Text style={styles.eyeIcon}>{showPassword ? "🙈" : "👁️"}</Text>
+          <Ionicons name={showPassword ? "eye-off" : "eye"} size={20} color={colors.subtext} />
         </TouchableOpacity>
       </View>
 
@@ -87,7 +88,7 @@ export default function SignupScreen({ onSwitch, onSignup }: {
           secureTextEntry={!showConfirm}
         />
         <TouchableOpacity style={styles.eyeBtn} onPress={() => setShowConfirm(p => !p)}>
-          <Text style={styles.eyeIcon}>{showConfirm ? "🙈" : "👁️"}</Text>
+          <Ionicons name={showConfirm ? "eye-off" : "eye"} size={20} color={colors.subtext} />
         </TouchableOpacity>
       </View>
 
@@ -118,7 +119,6 @@ function makeStyles(c: Colors) {
     },
     passwordInput: { flex: 1, padding: 14, fontSize: 15, color: c.text },
     eyeBtn: { paddingHorizontal: 14 },
-    eyeIcon: { fontSize: 18 },
     btn: {
       backgroundColor: c.primary, borderRadius: 10,
       padding: 16, alignItems: "center", marginBottom: 16,

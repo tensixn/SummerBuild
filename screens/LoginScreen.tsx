@@ -3,6 +3,7 @@ import {
   View, Text, TextInput, Pressable,
   StyleSheet, Platform, Alert, TouchableOpacity,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import * as WebBrowser from "expo-web-browser";
 import { supabase } from "../lib/supabase";
@@ -104,7 +105,7 @@ export default function LoginScreen({ onSwitch, onLogin }: {
           secureTextEntry={!showPassword}
         />
         <TouchableOpacity style={styles.eyeBtn} onPress={() => setShowPassword(p => !p)}>
-          <Text style={styles.eyeIcon}>{showPassword ? "🙈" : "👁️"}</Text>
+          <Ionicons name={showPassword ? "eye-off" : "eye"} size={20} color={colors.subtext} />
         </TouchableOpacity>
       </View>
 
@@ -141,7 +142,6 @@ function makeStyles(c: Colors) {
     },
     passwordInput: { flex: 1, padding: 14, fontSize: 15, color: c.text },
     eyeBtn: { paddingHorizontal: 14 },
-    eyeIcon: { fontSize: 18 },
     btn: {
       backgroundColor: c.primary, borderRadius: 10,
       padding: 16, alignItems: "center", marginBottom: 16,
