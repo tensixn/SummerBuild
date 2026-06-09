@@ -397,8 +397,12 @@ export default function ProfileScreen() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
     setShowSettings(false);
-    await supabase.from("profiles").delete().eq("id", user.id);
-    await supabase.rpc("delete_user");
+    const { error } = await supabase.rpc("delete_user");
+    if (error) {
+      Alert.alert("Error", "Failed to delete account: " + error.message);
+      setShowSettings(true);
+      return;
+    }
     await supabase.auth.signOut();
   }
 
