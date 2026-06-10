@@ -19,6 +19,12 @@
           "locationWhenInUsePermission": "NTU Sports needs your location to show how far you are from each court."
         }
       ],
+      [
+        "expo-notifications",
+        {
+          "defaultChannel": "games"
+        }
+      ],
       "expo-web-browser",
       "@react-native-community/datetimepicker"
     ],
