@@ -545,15 +545,21 @@ export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGam
         .or(`requester_id.eq.${user.id},receiver_id.eq.${user.id}`);
       if (friendsErr) { Alert.alert("Error loading friends", friendsErr.message); return; }
       const friendIds = (rows ?? []).map((r: any) => r.requester_id === user.id ? r.receiver_id : r.requester_id);
-      let uninvited: InviteFriend[] = [];
+      let allFriends: InviteFriend[] = [];
       if (friendIds.length > 0) {
         const { data: profiles, error: profilesErr } = await supabase.from("profiles").select("id, username, avatar_url").in("id", friendIds);
         if (profilesErr) { Alert.alert("Error loading profiles", profilesErr.message); return; }
         const joinedProfileIds = new Set(participants.map((p) => p.profile_id).filter(Boolean));
-        uninvited = (profiles ?? []).filter((p: any) => !joinedProfileIds.has(p.id)) as InviteFriend[];
+        allFriends = (profiles ?? []).filter((p: any) => !joinedProfileIds.has(p.id)) as InviteFriend[];
       }
-      setInviteableFriends(uninvited);
-      setInvitedIds(new Set());
+      // Check who has already been invited to this game
+      const { data: existingInvites } = await supabase.from("notifications")
+        .select("user_id")
+        .eq("type", "game_invite")
+        .eq("related_game_id", game.id);
+      const alreadyInvitedIds = new Set((existingInvites ?? []).map((n: any) => n.user_id));
+      setInviteableFriends(allFriends);
+      setInvitedIds(alreadyInvitedIds);
       setShowInviteView(true);
     } catch (e: any) {
       Alert.alert("Error", e?.message ?? "Something went wrong");
@@ -569,8 +575,24 @@ export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGam
       related_game_id: selectedGame.id,
       is_read: false,
     });
-    if (!error) setInvitedIds((prev) => new Set(prev).add(friend.id));
-    else Alert.alert("Error", error.message);
+    if (error) { Alert.alert("Error", error.message); return; }
+    setInvitedIds((prev) => new Set(prev).add(friend.id));
+    // Send push notification
+    const { data: profile } = await supabase.from("profiles").select("expo_push_token").eq("id", friend.id).single();
+    if (profile?.expo_push_token) {
+      fetch("https://exp.host/--/api/v2/push/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({
+          to: profile.expo_push_token,
+          title: "Game invite!",
+          body: `${currentUsername} invited you to a ${selectedGame.sport} at ${selectedGame.location}`,
+          data: { type: "game_invite", game_id: selectedGame.id },
+          sound: "default",
+          channelId: "games",
+        }),
+      }).catch(() => {});
+    }
   }
 
   async function openRateGame(game: Game) {
