@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import {
   View, Text, FlatList, Pressable, ActivityIndicator,
-  Alert, StyleSheet, Modal, ScrollView, Image, TextInput, RefreshControl,
+  Alert, StyleSheet, Modal, ScrollView, Image, TextInput, RefreshControl, Share,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "../lib/supabase";
@@ -58,6 +58,14 @@ type Notification = {
   created_at: string;
   type: string | null;
   related_user_id: string | null;
+  related_game_id: string | null;
+};
+
+type InviteFriend = {
+  id: string;
+  username: string;
+  avatar_url: string | null;
+  email: string;
 };
 
 async function awardCoins(userId: string, amount: number, reason: string, gameId: string) {
@@ -71,7 +79,7 @@ async function awardCoins(userId: string, amount: number, reason: string, gameId
   await supabase.from("profiles").update({ coins: (p?.coins ?? 0) + amount }).eq("id", userId);
 }
 
-export default function HomeScreen() {
+export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGameId?: string | null; onGameOpened?: () => void }) {
   const { colors, isDark } = useTheme();
   const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
   const [games, setGames] = useState<Game[]>([]);
@@ -124,6 +132,10 @@ export default function HomeScreen() {
   const [showMailbox, setShowMailbox] = useState(false);
   const [showUpcoming, setShowUpcoming] = useState(false);
   const [leaveConfirmGame, setLeaveConfirmGame] = useState<Game | null>(null);
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [inviteableFriends, setInviteableFriends] = useState<InviteFriend[]>([]);
+  const [invitingGame, setInvitingGame] = useState<Game | null>(null);
+  const [invitedIds, setInvitedIds] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState("");
   const [showAdvancedFilter, setShowAdvancedFilter] = useState(false);
   const [dateFilter, setDateFilter] = useState<string | number | null>(null);
@@ -507,6 +519,54 @@ export default function HomeScreen() {
         fetchGames();
       }},
     ]);
+  }
+
+  // Open game when app launched via deep link
+  useEffect(() => {
+    if (!pendingGameId || games.length === 0) return;
+    const target = games.find((g) => g.id === pendingGameId);
+    if (target) { openGame(target); onGameOpened?.(); }
+  }, [pendingGameId, games]);
+
+  async function shareGame(game: Game) {
+    const link = `ntusports://game/${game.id}`;
+    try {
+      await Share.share({
+        message: `Join my ${game.sport} game at ${game.location}! Open NTU Sports and use this link: ${link}`,
+        url: link,
+      });
+    } catch {}
+  }
+
+  async function openInviteModal(game: Game) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { data: rows } = await supabase.from("friends")
+      .select("requester_id, receiver_id")
+      .eq("status", "accepted")
+      .or(`requester_id.eq.${user.id},receiver_id.eq.${user.id}`);
+    if (!rows || rows.length === 0) { Alert.alert("No friends yet", "Add friends in the Search tab first."); return; }
+    const friendIds = rows.map((r: any) => r.requester_id === user.id ? r.receiver_id : r.requester_id);
+    const { data: profiles } = await supabase.from("profiles").select("id, username, avatar_url, email").in("id", friendIds);
+    const joinedProfileIds = new Set(participants.map((p) => p.profile_id).filter(Boolean));
+    const uninvited = (profiles ?? []).filter((p: any) => !joinedProfileIds.has(p.id));
+    setInviteableFriends(uninvited);
+    setInvitingGame(game);
+    setInvitedIds(new Set());
+    setShowInviteModal(true);
+  }
+
+  async function sendGameInvite(friend: InviteFriend) {
+    if (!invitingGame || !currentUsername) return;
+    const { error } = await supabase.from("notifications").insert({
+      user_email: friend.email,
+      message: `${currentUsername} invited you to their ${invitingGame.sport} at ${invitingGame.location}`,
+      type: "game_invite",
+      related_game_id: invitingGame.id,
+      is_read: false,
+    });
+    if (!error) setInvitedIds((prev) => new Set(prev).add(friend.id));
+    else Alert.alert("Error", error.message);
   }
 
   async function openRateGame(game: Game) {
@@ -916,7 +976,7 @@ export default function HomeScreen() {
               <View style={[styles.mailboxItem, n.is_read && styles.mailboxItemRead, n.type === "game_ended" && !n.is_read && styles.mailboxItemRating]}>
                 <View style={styles.mailboxItemRow}>
                   <Text style={styles.mailboxDot}>
-                    {n.type === "game_ended" ? "⭐" : n.is_read ? "○" : "●"}
+                    {n.type === "game_ended" ? "⭐" : n.type === "game_invite" ? "📨" : n.is_read ? "○" : "●"}
                   </Text>
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.notifMessage, n.is_read && styles.notifMessageRead]}>{n.message}</Text>
@@ -930,6 +990,18 @@ export default function HomeScreen() {
                           <Text style={styles.declineFriendBtnText}>Decline</Text>
                         </Pressable>
                       </View>
+                    )}
+                    {n.type === "game_invite" && n.related_game_id && (
+                      <Pressable
+                        style={styles.viewGameBtn}
+                        onPress={() => {
+                          const target = games.find((g) => g.id === n.related_game_id);
+                          if (target) { setShowMailbox(false); openGame(target); }
+                          else Alert.alert("Game not found", "This game may have already ended.");
+                        }}
+                      >
+                        <Text style={styles.viewGameBtnText}>View Game →</Text>
+                      </Pressable>
                     )}
                   </View>
                 </View>
@@ -1055,6 +1127,16 @@ export default function HomeScreen() {
                 <Text style={styles.chatRowText}>Game Chat</Text>
                 <Text style={styles.chatRowArrow}>›</Text>
               </Pressable>
+              <View style={styles.gameActionRow}>
+                <Pressable style={styles.gameActionBtn} onPress={() => selectedGame && openInviteModal(selectedGame)}>
+                  <Text style={styles.gameActionIcon}>📨</Text>
+                  <Text style={styles.gameActionText}>Invite Friends</Text>
+                </Pressable>
+                <Pressable style={styles.gameActionBtn} onPress={() => selectedGame && shareGame(selectedGame)}>
+                  <Text style={styles.gameActionIcon}>🔗</Text>
+                  <Text style={styles.gameActionText}>Share Game</Text>
+                </Pressable>
+              </View>
               <Text style={styles.sectionLabel}>Players Joined</Text>
               {loadingParticipants ? (
                 <ActivityIndicator style={{ marginTop: 16 }} />
@@ -1291,6 +1373,45 @@ export default function HomeScreen() {
           </ScrollView>
         </SafeAreaView>
       </Modal>
+
+      {/* Invite Friends Modal */}
+      <Modal visible={showInviteModal} animationType="slide" presentationStyle="pageSheet">
+        <SafeAreaView style={styles.modalSafe}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>📨 Invite Friends</Text>
+            <Pressable onPress={() => setShowInviteModal(false)}>
+              <Text style={styles.modalClose}>✕</Text>
+            </Pressable>
+          </View>
+          <ScrollView contentContainerStyle={styles.modalContent}>
+            {inviteableFriends.length === 0 ? (
+              <Text style={styles.emptyText}>All your friends have already joined, or you have no friends yet.</Text>
+            ) : (
+              inviteableFriends.map((f) => (
+                <View key={f.id} style={styles.inviteFriendRow}>
+                  {f.avatar_url ? (
+                    <Image source={{ uri: f.avatar_url }} style={styles.participantAvatar} />
+                  ) : (
+                    <View style={styles.participantAvatarPlaceholder}>
+                      <Text style={styles.participantAvatarText}>{f.username[0].toUpperCase()}</Text>
+                    </View>
+                  )}
+                  <Text style={styles.inviteFriendName}>{f.username}</Text>
+                  {invitedIds.has(f.id) ? (
+                    <View style={styles.invitedBadge}>
+                      <Text style={styles.invitedBadgeText}>Invited ✓</Text>
+                    </View>
+                  ) : (
+                    <Pressable style={styles.inviteBtn} onPress={() => sendGameInvite(f)}>
+                      <Text style={styles.inviteBtnText}>Invite</Text>
+                    </Pressable>
+                  )}
+                </View>
+              ))
+            )}
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -1483,4 +1604,16 @@ function makeStyles(c: Colors, isDark = false) { return StyleSheet.create({
   calDayTextSelected: { color: c.primaryText, fontWeight: "700" },
   calDayTextPast: { color: c.placeholder },
   calDayTextToday: { color: "#1976d2", fontWeight: "700" },
+  gameActionRow: { flexDirection: "row", gap: 10, marginBottom: 16 },
+  gameActionBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, borderRadius: 12, paddingVertical: 12 },
+  gameActionIcon: { fontSize: 16 },
+  gameActionText: { fontSize: 13, fontWeight: "600", color: c.text },
+  viewGameBtn: { marginTop: 8, alignSelf: "flex-start", backgroundColor: "#e3f2fd", borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6 },
+  viewGameBtnText: { fontSize: 13, fontWeight: "600", color: "#1565c0" },
+  inviteFriendRow: { flexDirection: "row", alignItems: "center", backgroundColor: c.surface, borderRadius: 12, borderWidth: 1, borderColor: c.border, padding: 12, marginBottom: 10, gap: 12 },
+  inviteFriendName: { flex: 1, fontSize: 15, fontWeight: "600", color: c.text },
+  inviteBtn: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8, backgroundColor: c.primary },
+  inviteBtnText: { fontSize: 13, fontWeight: "600", color: c.primaryText },
+  invitedBadge: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, backgroundColor: "#e8f5e9" },
+  invitedBadgeText: { fontSize: 13, fontWeight: "600", color: "#2e7d32" },
 }); }
