@@ -1257,6 +1257,24 @@ export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGam
               )}
             </ScrollView>
           )}
+          {/* Sticky join/leave footer — only in main game detail view */}
+          {!profileInDetail && !showInviteView && selectedGame && selectedGame.status === "open" && currentUserId !== selectedGame.created_by && (
+            <View style={styles.modalFooter}>
+              {joinedIds.has(selectedGame.id) ? (
+                <Pressable style={styles.leaveFooterBtn} onPress={() => leaveGame(selectedGame)}>
+                  <Text style={styles.leaveFooterBtnText}>Leave Game</Text>
+                </Pressable>
+              ) : selectedGame.current_players >= selectedGame.max_players ? (
+                <View style={styles.fullFooterBtn}>
+                  <Text style={styles.fullFooterBtnText}>Game Full</Text>
+                </View>
+              ) : (
+                <Pressable style={styles.joinFooterBtn} onPress={() => joinGame(selectedGame)}>
+                  <Text style={styles.joinFooterBtnText}>Join Game</Text>
+                </Pressable>
+              )}
+            </View>
+          )}
         </SafeAreaView>
       </Modal>
 
@@ -1502,6 +1520,13 @@ function makeStyles(c: Colors, isDark = false) { return StyleSheet.create({
   gameInfoText: { fontSize: 13, color: c.textMuted },
   chatRowBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, marginBottom: 4, gap: 10 },
   inviteRowBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, marginBottom: 16, gap: 8 },
+  modalFooter: { paddingHorizontal: 20, paddingVertical: 12, borderTopWidth: 1, borderTopColor: c.borderLight },
+  joinFooterBtn: { backgroundColor: "#4CAF50", borderRadius: 12, paddingVertical: 14, alignItems: "center" },
+  joinFooterBtnText: { color: "#fff", fontWeight: "700", fontSize: 16 },
+  leaveFooterBtn: { backgroundColor: isDark ? "#3a1a1a" : "#fff0f0", borderRadius: 12, paddingVertical: 14, alignItems: "center", borderWidth: 1, borderColor: "#e74c3c" },
+  leaveFooterBtnText: { color: "#e74c3c", fontWeight: "700", fontSize: 16 },
+  fullFooterBtn: { backgroundColor: c.surface, borderRadius: 12, paddingVertical: 14, alignItems: "center", borderWidth: 1, borderColor: c.border },
+  fullFooterBtnText: { color: c.placeholder, fontWeight: "600", fontSize: 16 },
   chatRowIcon: { fontSize: 18 },
   chatRowText: { fontSize: 15, fontWeight: "500", color: c.text },
   chatRowArrow: { fontSize: 18, color: c.placeholder },
