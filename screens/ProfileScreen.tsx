@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   View, Text, ScrollView, Pressable, TextInput, Modal,
-  StyleSheet, Alert, ActivityIndicator, Image, FlatList, RefreshControl,
+  StyleSheet, Alert, ActivityIndicator, Image, FlatList, RefreshControl, Linking,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as ImagePicker from "expo-image-picker";
@@ -794,6 +794,10 @@ export default function ProfileScreen() {
               <Text style={styles.settingsRowLabel}>Dark mode</Text>
               <Switch value={isDark} onValueChange={toggle} trackColor={{ false: "#e0e0e0", true: "#4caf50" }} thumbColor="#fff" />
             </View>
+            <Pressable style={[styles.settingsRow, styles.settingsRowBorder]} onPress={() => Linking.openSettings()}>
+              <Text style={styles.settingsRowLabel}>Location permission</Text>
+              <Text style={styles.settingsRowArrow}>›</Text>
+            </Pressable>
             <Pressable style={[styles.settingsRow, styles.settingsRowBorder]} onPress={confirmDeleteAccount}>
               <Text style={styles.deleteAccountLabel}>Delete account</Text>
             </Pressable>
