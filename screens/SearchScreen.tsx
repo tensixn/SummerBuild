@@ -12,7 +12,20 @@ type Profile = {
   username: string;
   avatar_url: string | null;
   sports_interests: string[];
+  equipped_border_id?: string | null;
 };
+
+const AVATAR_BORDERS = [
+  { id: "bronze",    color: "#cd7f32" },
+  { id: "silver",    color: "#a8a8a8" },
+  { id: "neon_blue", color: "#00b4ff" },
+  { id: "neon_pink", color: "#ff2d78" },
+  { id: "emerald",   color: "#2ecc71" },
+  { id: "gold",      color: "#ffd700" },
+  { id: "ruby",      color: "#e74c3c" },
+  { id: "diamond",   color: "#a8e6f0" },
+  { id: "champion",  color: "#ff6b35" },
+];
 
 type FriendStatus = "none" | "pending_sent" | "pending_received" | "accepted";
 type SearchResult = Profile & { friendStatus: FriendStatus };
@@ -251,13 +264,20 @@ export default function SearchScreen() {
           </Pressable>
 
           <View style={styles.profileHeader}>
-            {selectedProfile.avatar_url ? (
-              <Image source={{ uri: selectedProfile.avatar_url }} style={styles.profileAvatar} />
-            ) : (
-              <View style={styles.profileAvatarPlaceholder}>
-                <Text style={styles.profileAvatarText}>{selectedProfile.username[0].toUpperCase()}</Text>
-              </View>
-            )}
+            {(() => {
+              const border = AVATAR_BORDERS.find((b) => b.id === selectedProfile.equipped_border_id);
+              return (
+                <View style={[styles.profileAvatarRing, border ? { borderColor: border.color, borderWidth: 4 } : {}]}>
+                  {selectedProfile.avatar_url ? (
+                    <Image source={{ uri: selectedProfile.avatar_url }} style={styles.profileAvatar} />
+                  ) : (
+                    <View style={styles.profileAvatarPlaceholder}>
+                      <Text style={styles.profileAvatarText}>{selectedProfile.username[0].toUpperCase()}</Text>
+                    </View>
+                  )}
+                </View>
+              );
+            })()}
             <Text style={styles.profileUsername}>{selectedProfile.username}</Text>
             <View style={styles.profileActionRow}>{renderActionBtn(selectedProfile)}</View>
           </View>
@@ -369,13 +389,20 @@ export default function SearchScreen() {
           renderItem={({ item }) => (
             <Pressable style={styles.card} onPress={() => openProfile(item)}>
               <View style={styles.cardLeft}>
-                {item.avatar_url ? (
-                  <Image source={{ uri: item.avatar_url }} style={styles.avatar} />
-                ) : (
-                  <View style={styles.avatarPlaceholder}>
-                    <Text style={styles.avatarText}>{item.username[0].toUpperCase()}</Text>
-                  </View>
-                )}
+                {(() => {
+                  const border = AVATAR_BORDERS.find((b) => b.id === item.equipped_border_id);
+                  return (
+                    <View style={[styles.avatarRing, border ? { borderColor: border.color, borderWidth: 3 } : {}]}>
+                      {item.avatar_url ? (
+                        <Image source={{ uri: item.avatar_url }} style={styles.avatar} />
+                      ) : (
+                        <View style={styles.avatarPlaceholder}>
+                          <Text style={styles.avatarText}>{item.username[0].toUpperCase()}</Text>
+                        </View>
+                      )}
+                    </View>
+                  );
+                })()}
                 <View style={styles.cardInfo}>
                   <Text style={styles.cardUsername}>{item.username}</Text>
                   {item.sports_interests.length > 0 ? (
@@ -411,8 +438,9 @@ function makeStyles(c: Colors) { return StyleSheet.create({
   list: { paddingBottom: 40 },
   card: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: c.surface, borderRadius: 12, borderWidth: 1, borderColor: c.border, padding: 12, marginBottom: 10 },
   cardLeft: { flexDirection: "row", alignItems: "center", flex: 1 },
-  avatar: { width: 44, height: 44, borderRadius: 22, marginRight: 12 },
-  avatarPlaceholder: { width: 44, height: 44, borderRadius: 22, backgroundColor: "#212121", alignItems: "center", justifyContent: "center", marginRight: 12 },
+  avatarRing: { borderRadius: 25, padding: 2, marginRight: 12 },
+  avatar: { width: 44, height: 44, borderRadius: 22 },
+  avatarPlaceholder: { width: 44, height: 44, borderRadius: 22, backgroundColor: "#212121", alignItems: "center", justifyContent: "center" },
   avatarText: { color: "#fff", fontWeight: "700", fontSize: 18 },
   cardInfo: { flex: 1 },
   cardUsername: { fontSize: 15, fontWeight: "600", color: c.text, marginBottom: 2 },
@@ -430,8 +458,9 @@ function makeStyles(c: Colors) { return StyleSheet.create({
   friendBadge: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 8, backgroundColor: "#e8f5e9" },
   friendBadgeText: { color: "#2e7d32", fontSize: 12, fontWeight: "600" },
   profileHeader: { alignItems: "center", marginBottom: 24, paddingTop: 8 },
-  profileAvatar: { width: 80, height: 80, borderRadius: 40, marginBottom: 12 },
-  profileAvatarPlaceholder: { width: 80, height: 80, borderRadius: 40, backgroundColor: "#212121", alignItems: "center", justifyContent: "center", marginBottom: 12 },
+  profileAvatarRing: { borderRadius: 44, padding: 2, marginBottom: 12 },
+  profileAvatar: { width: 80, height: 80, borderRadius: 40 },
+  profileAvatarPlaceholder: { width: 80, height: 80, borderRadius: 40, backgroundColor: "#212121", alignItems: "center", justifyContent: "center" },
   profileAvatarText: { fontSize: 32, fontWeight: "700", color: "#fff" },
   profileUsername: { fontSize: 20, fontWeight: "700", color: c.text, marginBottom: 12 },
   profileActionRow: { flexDirection: "row" },

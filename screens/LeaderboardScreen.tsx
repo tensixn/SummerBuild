@@ -59,9 +59,22 @@ type LeaderEntry = {
   userId: string;
   username: string;
   avatarUrl: string | null;
+  equippedBorderId: string | null;
   current: number;
   longest: number;
 };
+
+const AVATAR_BORDERS = [
+  { id: "bronze",    color: "#cd7f32" },
+  { id: "silver",    color: "#a8a8a8" },
+  { id: "neon_blue", color: "#00b4ff" },
+  { id: "neon_pink", color: "#ff2d78" },
+  { id: "emerald",   color: "#2ecc71" },
+  { id: "gold",      color: "#ffd700" },
+  { id: "ruby",      color: "#e74c3c" },
+  { id: "diamond",   color: "#a8e6f0" },
+  { id: "champion",  color: "#ff6b35" },
+];
 
 const MEDALS = ["🥇", "🥈", "🥉"];
 
@@ -136,10 +149,10 @@ export default function LeaderboardScreen() {
     const allIds = streaks.map((s) => s.userId);
     const { data: profiles } = await supabase
       .from("profiles")
-      .select("id, username, avatar_url")
+      .select("id, username, avatar_url, equipped_border_id")
       .in("id", allIds);
 
-    const profileMap: Record<string, { username: string; avatar_url: string | null }> = {};
+    const profileMap: Record<string, { username: string; avatar_url: string | null; equipped_border_id: string | null }> = {};
     (profiles ?? []).forEach((p: any) => { profileMap[p.id] = p; });
 
     setAllEntries(
@@ -147,6 +160,7 @@ export default function LeaderboardScreen() {
         userId: s.userId,
         username: profileMap[s.userId]?.username ?? "Unknown",
         avatarUrl: profileMap[s.userId]?.avatar_url ?? null,
+        equippedBorderId: profileMap[s.userId]?.equipped_border_id ?? null,
         current: s.current,
         longest: s.longest,
       }))
@@ -252,15 +266,22 @@ export default function LeaderboardScreen() {
                     )}
                   </View>
 
-                  {entry.avatarUrl ? (
-                    <Image source={{ uri: entry.avatarUrl }} style={styles.avatar} />
-                  ) : (
-                    <View style={styles.avatarPlaceholder}>
-                      <Text style={styles.avatarText}>
-                        {entry.username[0]?.toUpperCase() ?? "?"}
-                      </Text>
-                    </View>
-                  )}
+                  {(() => {
+                    const border = AVATAR_BORDERS.find((b) => b.id === entry.equippedBorderId);
+                    return (
+                      <View style={[styles.avatarRing, border ? { borderColor: border.color, borderWidth: 3 } : {}]}>
+                        {entry.avatarUrl ? (
+                          <Image source={{ uri: entry.avatarUrl }} style={styles.avatar} />
+                        ) : (
+                          <View style={styles.avatarPlaceholder}>
+                            <Text style={styles.avatarText}>
+                              {entry.username[0]?.toUpperCase() ?? "?"}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                    );
+                  })()}
 
                   <View style={styles.info}>
                     <Text style={[styles.username, isMe && styles.usernameMe]} numberOfLines={1}>
@@ -355,6 +376,7 @@ function makeStyles(c: Colors) {
     rankBox: { width: 34, alignItems: "center" },
     medal: { fontSize: 24 },
     rank: { fontSize: 14, fontWeight: "600", color: c.textMuted },
+    avatarRing: { borderRadius: 25, padding: 2 },
     avatar: { width: 44, height: 44, borderRadius: 22 },
     avatarPlaceholder: {
       width: 44,
