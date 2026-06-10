@@ -58,6 +58,13 @@ type Notification = {
   created_at: string;
   type: string | null;
   related_user_id: string | null;
+  related_game_id: string | null;
+};
+
+type InviteFriend = {
+  id: string;
+  username: string;
+  avatar_url: string | null;
 };
 
 async function awardCoins(userId: string, amount: number, reason: string, gameId: string) {
@@ -71,7 +78,7 @@ async function awardCoins(userId: string, amount: number, reason: string, gameId
   await supabase.from("profiles").update({ coins: (p?.coins ?? 0) + amount }).eq("id", userId);
 }
 
-export default function HomeScreen() {
+export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGameId?: string | null; onGameOpened?: () => void }) {
   const { colors, isDark } = useTheme();
   const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
   const [games, setGames] = useState<Game[]>([]);
@@ -124,6 +131,9 @@ export default function HomeScreen() {
   const [showMailbox, setShowMailbox] = useState(false);
   const [showUpcoming, setShowUpcoming] = useState(false);
   const [leaveConfirmGame, setLeaveConfirmGame] = useState<Game | null>(null);
+  const [showInviteView, setShowInviteView] = useState(false);
+  const [inviteableFriends, setInviteableFriends] = useState<InviteFriend[]>([]);
+  const [invitedIds, setInvitedIds] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState("");
   const [showAdvancedFilter, setShowAdvancedFilter] = useState(false);
   const [dateFilter, setDateFilter] = useState<string | number | null>(null);
@@ -207,7 +217,9 @@ export default function HomeScreen() {
   const fetchNotifications = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
-    const { data } = await supabase.from("notifications").select("*").eq("user_email", user.email).eq("is_read", false).order("created_at", { ascending: false });
+    const { data } = await supabase.from("notifications").select("*")
+      .or(`user_email.eq.${user.email},user_id.eq.${user.id}`)
+      .eq("is_read", false).order("created_at", { ascending: false });
     if (data && data.length > 0) {
       setNotifications(data);
       if (data.some((n: any) => n.type !== "friend_request")) setShowNotifModal(true);
@@ -217,7 +229,9 @@ export default function HomeScreen() {
   const fetchAllNotifications = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
-    const { data } = await supabase.from("notifications").select("*").eq("user_email", user.email).order("created_at", { ascending: false });
+    const { data } = await supabase.from("notifications").select("*")
+      .or(`user_email.eq.${user.email},user_id.eq.${user.id}`)
+      .order("created_at", { ascending: false });
     if (data) setAllNotifications(data);
   }, []);
 
@@ -267,7 +281,12 @@ export default function HomeScreen() {
   async function markAllRead() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
-    await supabase.from("notifications").update({ is_read: true }).eq("user_email", user.email).eq("is_read", false).neq("type", "friend_request");
+    const { data: mine } = await supabase.from("notifications").select("id")
+      .or(`user_email.eq.${user.email},user_id.eq.${user.id}`)
+      .eq("is_read", false).neq("type", "friend_request");
+    if (mine && mine.length > 0) {
+      await supabase.from("notifications").update({ is_read: true }).in("id", mine.map((n: any) => n.id));
+    }
     setNotifications((prev) => prev.filter((n) => n.type === "friend_request"));
     setShowNotifModal(false);
     fetchAllNotifications();
@@ -507,6 +526,51 @@ export default function HomeScreen() {
         fetchGames();
       }},
     ]);
+  }
+
+  // Open game when app launched via deep link
+  useEffect(() => {
+    if (!pendingGameId || games.length === 0) return;
+    const target = games.find((g) => g.id === pendingGameId);
+    if (target) { openGame(target); onGameOpened?.(); }
+  }, [pendingGameId, games]);
+
+  async function openInviteModal(game: Game) {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { Alert.alert("Error", "Not logged in"); return; }
+      const { data: rows, error: friendsErr } = await supabase.from("friends")
+        .select("requester_id, receiver_id")
+        .eq("status", "accepted")
+        .or(`requester_id.eq.${user.id},receiver_id.eq.${user.id}`);
+      if (friendsErr) { Alert.alert("Error loading friends", friendsErr.message); return; }
+      const friendIds = (rows ?? []).map((r: any) => r.requester_id === user.id ? r.receiver_id : r.requester_id);
+      let uninvited: InviteFriend[] = [];
+      if (friendIds.length > 0) {
+        const { data: profiles, error: profilesErr } = await supabase.from("profiles").select("id, username, avatar_url").in("id", friendIds);
+        if (profilesErr) { Alert.alert("Error loading profiles", profilesErr.message); return; }
+        const joinedProfileIds = new Set(participants.map((p) => p.profile_id).filter(Boolean));
+        uninvited = (profiles ?? []).filter((p: any) => !joinedProfileIds.has(p.id)) as InviteFriend[];
+      }
+      setInviteableFriends(uninvited);
+      setInvitedIds(new Set());
+      setShowInviteView(true);
+    } catch (e: any) {
+      Alert.alert("Error", e?.message ?? "Something went wrong");
+    }
+  }
+
+  async function sendGameInvite(friend: InviteFriend) {
+    if (!selectedGame || !currentUsername) return;
+    const { error } = await supabase.from("notifications").insert({
+      user_id: friend.id,
+      message: `${currentUsername} invited you to their ${selectedGame.sport} at ${selectedGame.location}`,
+      type: "game_invite",
+      related_game_id: selectedGame.id,
+      is_read: false,
+    });
+    if (!error) setInvitedIds((prev) => new Set(prev).add(friend.id));
+    else Alert.alert("Error", error.message);
   }
 
   async function openRateGame(game: Game) {
@@ -916,7 +980,7 @@ export default function HomeScreen() {
               <View style={[styles.mailboxItem, n.is_read && styles.mailboxItemRead, n.type === "game_ended" && !n.is_read && styles.mailboxItemRating]}>
                 <View style={styles.mailboxItemRow}>
                   <Text style={styles.mailboxDot}>
-                    {n.type === "game_ended" ? "⭐" : n.is_read ? "○" : "●"}
+                    {n.type === "game_ended" ? "⭐" : n.type === "game_invite" ? "📨" : n.is_read ? "○" : "●"}
                   </Text>
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.notifMessage, n.is_read && styles.notifMessageRead]}>{n.message}</Text>
@@ -930,6 +994,18 @@ export default function HomeScreen() {
                           <Text style={styles.declineFriendBtnText}>Decline</Text>
                         </Pressable>
                       </View>
+                    )}
+                    {n.type === "game_invite" && n.related_game_id && (
+                      <Pressable
+                        style={styles.viewGameBtn}
+                        onPress={() => {
+                          const target = games.find((g) => g.id === n.related_game_id);
+                          if (target) { setShowMailbox(false); openGame(target); }
+                          else Alert.alert("Game not found", "This game may have already ended.");
+                        }}
+                      >
+                        <Text style={styles.viewGameBtnText}>View Game →</Text>
+                      </Pressable>
                     )}
                   </View>
                 </View>
@@ -948,22 +1024,54 @@ export default function HomeScreen() {
 
       {/* Game Detail Modal */}
       <Modal visible={selectedGame !== null} animationType="slide" presentationStyle="pageSheet"
-        onDismiss={() => { setProfileInDetail(null); setProfileInDetailReviews([]); }}>
+        onDismiss={() => { setProfileInDetail(null); setProfileInDetailReviews([]); setShowInviteView(false); }}>
         <SafeAreaView style={styles.modalSafe}>
           <View style={styles.modalHeader}>
-            {profileInDetail ? (
+            {showInviteView ? (
+              <Pressable onPress={() => setShowInviteView(false)} style={styles.backBtn}>
+                <Text style={styles.backBtnText}>‹ Game</Text>
+              </Pressable>
+            ) : profileInDetail ? (
               <Pressable onPress={() => { setProfileInDetail(null); setProfileInDetailReviews([]); }} style={styles.backBtn}>
                 <Text style={styles.backBtnText}>‹ Players</Text>
               </Pressable>
             ) : (
               <Text style={styles.modalTitle}>{selectedGame?.sport} · {selectedGame?.location}</Text>
             )}
-            <Pressable onPress={() => { setSelectedGame(null); setParticipants([]); setProfileInDetail(null); setProfileInDetailReviews([]); }}>
+            <Pressable onPress={() => { setSelectedGame(null); setParticipants([]); setProfileInDetail(null); setProfileInDetailReviews([]); setShowInviteView(false); }}>
               <Text style={styles.modalClose}>✕</Text>
             </Pressable>
           </View>
 
-          {profileInDetail ? (
+          {showInviteView ? (
+            <ScrollView contentContainerStyle={styles.modalContent}>
+              {inviteableFriends.length === 0 ? (
+                <Text style={styles.emptyText}>No friends to invite. Either they've already joined or you haven't added any friends yet (Search tab).</Text>
+              ) : (
+                inviteableFriends.map((f) => (
+                  <View key={f.id} style={styles.inviteFriendRow}>
+                    {f.avatar_url ? (
+                      <Image source={{ uri: f.avatar_url }} style={styles.participantAvatar} />
+                    ) : (
+                      <View style={styles.participantAvatarPlaceholder}>
+                        <Text style={styles.participantAvatarText}>{f.username[0].toUpperCase()}</Text>
+                      </View>
+                    )}
+                    <Text style={styles.inviteFriendName}>{f.username}</Text>
+                    {invitedIds.has(f.id) ? (
+                      <View style={styles.invitedBadge}>
+                        <Text style={styles.invitedBadgeText}>Invited ✓</Text>
+                      </View>
+                    ) : (
+                      <Pressable style={styles.inviteBtn} onPress={() => sendGameInvite(f)}>
+                        <Text style={styles.inviteBtnText}>Invite</Text>
+                      </Pressable>
+                    )}
+                  </View>
+                ))
+              )}
+            </ScrollView>
+          ) : profileInDetail ? (
             <ScrollView contentContainerStyle={styles.modalContent}>
               <View style={styles.profileHeader}>
                 {(() => {
@@ -1054,6 +1162,10 @@ export default function HomeScreen() {
                 <Text style={styles.chatRowIcon}>💬</Text>
                 <Text style={styles.chatRowText}>Game Chat</Text>
                 <Text style={styles.chatRowArrow}>›</Text>
+              </Pressable>
+              <Pressable style={styles.inviteRowBtn} onPress={() => { if (selectedGame) openInviteModal(selectedGame); }}>
+                <Text style={styles.gameActionIcon}>📨</Text>
+                <Text style={styles.gameActionText}>Invite Friends</Text>
               </Pressable>
               <Text style={styles.sectionLabel}>Players Joined</Text>
               {loadingParticipants ? (
@@ -1291,6 +1403,7 @@ export default function HomeScreen() {
           </ScrollView>
         </SafeAreaView>
       </Modal>
+
     </SafeAreaView>
   );
 }
@@ -1365,9 +1478,10 @@ function makeStyles(c: Colors, isDark = false) { return StyleSheet.create({
   modalContent: { padding: 20, paddingBottom: 48 },
   gameInfoRow: { flexDirection: "row", gap: 12, flexWrap: "wrap", marginBottom: 8 },
   gameInfoText: { fontSize: 13, color: c.textMuted },
-  chatRowBtn: { flexDirection: "row", alignItems: "center", backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, marginBottom: 4, gap: 10 },
+  chatRowBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, marginBottom: 4, gap: 10 },
+  inviteRowBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, marginBottom: 16, gap: 8 },
   chatRowIcon: { fontSize: 18 },
-  chatRowText: { flex: 1, fontSize: 15, fontWeight: "500", color: c.text },
+  chatRowText: { fontSize: 15, fontWeight: "500", color: c.text },
   chatRowArrow: { fontSize: 18, color: c.placeholder },
   participantCard: { flexDirection: "row", alignItems: "center", backgroundColor: c.surface, borderRadius: 12, borderWidth: 1, borderColor: c.border, padding: 12, marginBottom: 10 },
   participantAvatarRing: { borderRadius: 25, padding: 2, marginRight: 12 },
@@ -1483,4 +1597,16 @@ function makeStyles(c: Colors, isDark = false) { return StyleSheet.create({
   calDayTextSelected: { color: c.primaryText, fontWeight: "700" },
   calDayTextPast: { color: c.placeholder },
   calDayTextToday: { color: "#1976d2", fontWeight: "700" },
+  gameActionRow: { flexDirection: "row", gap: 10, marginBottom: 16 },
+  gameActionBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, borderRadius: 12, paddingVertical: 12 },
+  gameActionIcon: { fontSize: 16 },
+  gameActionText: { fontSize: 13, fontWeight: "600", color: c.text },
+  viewGameBtn: { marginTop: 8, alignSelf: "flex-start", backgroundColor: "#e3f2fd", borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6 },
+  viewGameBtnText: { fontSize: 13, fontWeight: "600", color: "#1565c0" },
+  inviteFriendRow: { flexDirection: "row", alignItems: "center", backgroundColor: c.surface, borderRadius: 12, borderWidth: 1, borderColor: c.border, padding: 12, marginBottom: 10, gap: 12 },
+  inviteFriendName: { flex: 1, fontSize: 15, fontWeight: "600", color: c.text },
+  inviteBtn: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8, backgroundColor: c.primary },
+  inviteBtnText: { fontSize: 13, fontWeight: "600", color: c.primaryText },
+  invitedBadge: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, backgroundColor: "#e8f5e9" },
+  invitedBadgeText: { fontSize: 13, fontWeight: "600", color: "#2e7d32" },
 }); }

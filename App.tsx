@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { View, Text, Pressable, StyleSheet } from "react-native";
+import { View, Text, Pressable, StyleSheet, Linking } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -34,7 +34,14 @@ function AppContent() {
   const [loggedIn, setLoggedIn] = useState(false);
   const [checking, setChecking] = useState(true);
   const [isDark, setIsDark] = useState(false);
+  const [pendingGameId, setPendingGameId] = useState<string | null>(null);
   const insets = useSafeAreaInsets();
+
+  function handleDeepLink(url: string | null) {
+    if (!url) return;
+    const match = url.match(/game\/([^/?#]+)/);
+    if (match) { setTab("games"); setPendingGameId(match[1]); }
+  }
 
   useEffect(() => {
     AsyncStorage.getItem(DARK_KEY).then((v) => { if (v === "1") setIsDark(true); });
@@ -62,11 +69,13 @@ function AppContent() {
   useEffect(() => {
     if (!loggedIn) return;
     setupNotifications();
-    // Navigate to Games tab when user taps any push notification
-    const sub = Notifications.addNotificationResponseReceivedListener(() => {
+    const notifSub = Notifications.addNotificationResponseReceivedListener(() => {
       setTab("games");
     });
-    return () => sub.remove();
+    // Check if app was opened from a deep link
+    Linking.getInitialURL().then(handleDeepLink);
+    const linkSub = Linking.addEventListener("url", ({ url }) => handleDeepLink(url));
+    return () => { notifSub.remove(); linkSub.remove(); };
   }, [loggedIn]);
 
   const colors = isDark ? darkColors : lightColors;
@@ -90,7 +99,7 @@ function AppContent() {
       <View style={[styles.root, { backgroundColor: colors.bg }]}>
         <StatusBar style={isDark ? "light" : "dark"} />
         <View style={styles.content}>
-          {tab === "games" ? <HomeScreen /> :
+          {tab === "games" ? <HomeScreen pendingGameId={pendingGameId} onGameOpened={() => setPendingGameId(null)} /> :
            tab === "map" ? <MapScreen /> :
            tab === "search" ? <SearchScreen /> :
            tab === "leaderboard" ? <LeaderboardScreen /> :

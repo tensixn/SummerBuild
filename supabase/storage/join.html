@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NTU Sports</title>
+  <script>
+    var id = new URLSearchParams(window.location.search).get("id");
+    if (id) window.location.href = "ntusports://game/" + id;
+  </script>
+</head>
+<body style="font-family:sans-serif;text-align:center;padding:48px 24px;background:#f5f5f5">
+  <h2 style="font-size:22px;margin-bottom:12px">Opening NTU Sports...</h2>
+  <p style="color:#666;font-size:15px;margin-bottom:24px">If the app does not open automatically, tap the button below.</p>
+  <a id="btn" href="#" style="display:inline-block;padding:14px 32px;background:#4CAF50;color:#fff;border-radius:12px;text-decoration:none;font-size:17px;font-weight:700">Open in NTU Sports</a>
+  <script>
+    var id = new URLSearchParams(window.location.search).get("id");
+    if (id) document.getElementById("btn").href = "ntusports://game/" + id;
+  </script>
+</body>
+</html>
