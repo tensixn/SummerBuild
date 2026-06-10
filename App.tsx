@@ -3,6 +3,7 @@ import { View, Text, Pressable, StyleSheet } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as Notifications from "expo-notifications";
 import HomeScreen from "./screens/HomeScreen";
 import MapScreen from "./screens/MapScreen";
 import ProfileScreen from "./screens/ProfileScreen";
@@ -12,6 +13,7 @@ import SignupScreen from "./screens/SignupScreen";
 import SearchScreen from "./screens/SearchScreen";
 import { supabase } from "./lib/supabase";
 import { ThemeContext, lightColors, darkColors } from "./lib/theme";
+import { setupNotifications } from "./lib/notifications";
 
 const DARK_KEY = "@dark_mode";
 
@@ -56,6 +58,16 @@ function AppContent() {
     });
     return () => listener.subscription.unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (!loggedIn) return;
+    setupNotifications();
+    // Navigate to Games tab when user taps any push notification
+    const sub = Notifications.addNotificationResponseReceivedListener(() => {
+      setTab("games");
+    });
+    return () => sub.remove();
+  }, [loggedIn]);
 
   const colors = isDark ? darkColors : lightColors;
 

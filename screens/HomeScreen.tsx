@@ -11,6 +11,7 @@ import GameCard from "../components/GameCard";
 import CreateGameModal from "../components/CreateGameModal";
 import ChatModal from "../components/ChatModal";
 import { useTheme, Colors } from "../lib/theme";
+import { syncGameStartNotifications, notifyCreatorOnJoin } from "../lib/notifications";
 
 type Participant = {
   user_name: string;
@@ -82,6 +83,13 @@ export default function HomeScreen() {
       .filter((g) => joinedIds.has(g.id) && g.status === "open" && g.start_time >= now)
       .sort((a, b) => a.start_time.localeCompare(b.start_time));
   }, [games, joinedIds]);
+
+  useEffect(() => {
+    syncGameStartNotifications(
+      upcomingGames.map((g) => ({ id: g.id, start_time: g.start_time, sport: g.sport, location: g.location }))
+    );
+  }, [upcomingGames]);
+
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState<Sport>("All");
@@ -436,6 +444,7 @@ export default function HomeScreen() {
     if (!user) return;
     const { error } = await supabase.from("game_participants").insert({ game_id: game.id, user_name: user.email, user_id: user.id });
     if (error) { Alert.alert("Error", error.message); return; }
+    notifyCreatorOnJoin(game.id, currentUsername ?? user.email?.split("@")[0] ?? "Someone", user.id);
     setJoinedIds((prev) => new Set(prev).add(game.id));
     fetchGames();
   }
@@ -827,7 +836,7 @@ export default function HomeScreen() {
         />
       </View>
 
-      <CreateGameModal visible={modalVisible} onClose={() => setModalVisible(false)} onCreated={() => { fetchGames(); }} />
+      <CreateGameModal visible={modalVisible} onClose={() => setModalVisible(false)} onCreated={() => { fetchGames(); fetchJoined(); }} />
 
       <ChatModal
         visible={!!chatGame}
