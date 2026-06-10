@@ -19,6 +19,7 @@ type Participant = {
   avatar_url: string | null;
   sports_interests: string[] | null;
   recently_abandoned_at: string | null;
+  equipped_border_id: string | null;
 };
 
 type Profile = {
@@ -27,7 +28,20 @@ type Profile = {
   avatar_url: string | null;
   sports_interests: string[];
   recently_abandoned_at?: string | null;
+  equipped_border_id?: string | null;
 };
+
+const AVATAR_BORDERS = [
+  { id: "bronze",    color: "#cd7f32" },
+  { id: "silver",    color: "#a8a8a8" },
+  { id: "neon_blue", color: "#00b4ff" },
+  { id: "neon_pink", color: "#ff2d78" },
+  { id: "emerald",   color: "#2ecc71" },
+  { id: "gold",      color: "#ffd700" },
+  { id: "ruby",      color: "#e74c3c" },
+  { id: "diamond",   color: "#a8e6f0" },
+  { id: "champion",  color: "#ff6b35" },
+];
 
 type Review = {
   id: string;
@@ -323,8 +337,17 @@ export default function HomeScreen() {
     checkAndClearAbandonedFlag();
 
     const channel = supabase.channel("games-realtime")
-      .on("postgres_changes", { event: "*", schema: "public", table: "games" }, () => { fetchGames(); })
-      .on("postgres_changes", { event: "*", schema: "public", table: "game_participants" }, () => { fetchGames(); fetchJoined(); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "games" }, () => { silentRefreshGames(); })
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "game_participants" }, (payload) => {
+        const gameId = (payload.new as any).game_id;
+        setGames((prev) => prev.map((g) => g.id === gameId ? { ...g, current_players: g.current_players + 1 } : g));
+        fetchJoined();
+      })
+      .on("postgres_changes", { event: "DELETE", schema: "public", table: "game_participants" }, (payload) => {
+        const gameId = (payload.old as any).game_id;
+        setGames((prev) => prev.map((g) => g.id === gameId ? { ...g, current_players: Math.max(0, g.current_players - 1) } : g));
+        fetchJoined();
+      })
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications" }, () => { fetchNotifications(); fetchAllNotifications(); })
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "game_messages" }, (payload) => {
         const { game_id, user_id } = payload.new as { game_id: string; user_id: string };
@@ -334,7 +357,7 @@ export default function HomeScreen() {
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [fetchGames, fetchJoined, fetchNotifications, fetchAllNotifications, fetchRatableGames, checkAndClearAbandonedFlag]);
+  }, [fetchGames, silentRefreshGames, fetchJoined, fetchNotifications, fetchAllNotifications, fetchRatableGames, checkAndClearAbandonedFlag]);
 
   async function openGame(game: Game) {
     setSelectedGame(game);
@@ -345,7 +368,7 @@ export default function HomeScreen() {
     let profileMap: Record<string, { username: string; avatar_url: string | null; sports_interests: string[]; recently_abandoned_at: string | null }> = {};
     if (userIds.length > 0) {
       const [profilesRes, ratingsRes] = await Promise.all([
-        supabase.from("profiles").select("id, username, avatar_url, sports_interests, recently_abandoned_at").in("id", userIds),
+        supabase.from("profiles").select("id, username, avatar_url, sports_interests, recently_abandoned_at, equipped_border_id").in("id", userIds),
         supabase.from("ratings").select("rated_id, stars").in("rated_id", userIds),
       ]);
       if (profilesRes.data) profilesRes.data.forEach((p: any) => { profileMap[p.id] = p; });
@@ -363,7 +386,7 @@ export default function HomeScreen() {
     }
     setParticipants(rows.map((r: any) => {
       const profile = r.user_id ? profileMap[r.user_id] : null;
-      return { user_name: r.user_name, profile_id: r.user_id ?? null, username: profile?.username ?? null, avatar_url: profile?.avatar_url ?? null, sports_interests: profile?.sports_interests ?? null, recently_abandoned_at: profile?.recently_abandoned_at ?? null };
+      return { user_name: r.user_name, profile_id: r.user_id ?? null, username: profile?.username ?? null, avatar_url: profile?.avatar_url ?? null, sports_interests: profile?.sports_interests ?? null, recently_abandoned_at: profile?.recently_abandoned_at ?? null, equipped_border_id: profile?.equipped_border_id ?? null };
     }));
     setLoadingParticipants(false);
   }
@@ -375,7 +398,7 @@ export default function HomeScreen() {
       supabase.from("reviews").select("*").eq("profile_id", profile.id).order("created_at", { ascending: false }),
       supabase.from("game_participants").select("*", { count: "exact", head: true }).eq("user_id", profile.id),
       supabase.from("games").select("*", { count: "exact", head: true }).eq("created_by", profile.id),
-      supabase.from("profiles").select("abandoned_count").eq("id", profile.id).single(),
+      supabase.from("profiles").select("abandoned_count, equipped_border_id").eq("id", profile.id).single(),
     ]);
     setProfileInDetailReviews(reviewsRes.data ?? []);
     setProfileInDetailStats({
@@ -383,6 +406,7 @@ export default function HomeScreen() {
       created: createdRes.count ?? 0,
       abandoned: profileRes.data?.abandoned_count ?? 0,
     });
+    setProfileInDetail((prev) => prev ? { ...prev, equipped_border_id: profileRes.data?.equipped_border_id ?? null } : prev);
   }
 
   async function openProfile(profile: Profile) {
@@ -463,7 +487,7 @@ export default function HomeScreen() {
     const userIds = (parts ?? []).map((p: any) => p.user_id).filter(Boolean) as string[];
     let profiles: Profile[] = [];
     if (userIds.length > 0) {
-      const { data } = await supabase.from("profiles").select("id, username, avatar_url, sports_interests").in("id", userIds);
+      const { data } = await supabase.from("profiles").select("id, username, avatar_url, sports_interests, equipped_border_id").in("id", userIds);
       profiles = data ?? [];
     }
     setRateParticipants(profiles);
@@ -912,13 +936,20 @@ export default function HomeScreen() {
           {profileInDetail ? (
             <ScrollView contentContainerStyle={styles.modalContent}>
               <View style={styles.profileHeader}>
-                {profileInDetail.avatar_url ? (
-                  <Image source={{ uri: profileInDetail.avatar_url }} style={styles.profileAvatar} />
-                ) : (
-                  <View style={styles.profileAvatarPlaceholder}>
-                    <Text style={styles.profileAvatarText}>{profileInDetail.username[0].toUpperCase()}</Text>
-                  </View>
-                )}
+                {(() => {
+                  const border = AVATAR_BORDERS.find((b) => b.id === profileInDetail.equipped_border_id);
+                  return (
+                    <View style={[styles.profileAvatarRing, border ? { borderColor: border.color, borderWidth: 4 } : {}]}>
+                      {profileInDetail.avatar_url ? (
+                        <Image source={{ uri: profileInDetail.avatar_url }} style={styles.profileAvatar} />
+                      ) : (
+                        <View style={styles.profileAvatarPlaceholder}>
+                          <Text style={styles.profileAvatarText}>{profileInDetail.username[0].toUpperCase()}</Text>
+                        </View>
+                      )}
+                    </View>
+                  );
+                })()}
                 <Text style={styles.profileUsername}>{profileInDetail.username}</Text>
                 <Text style={styles.profileRatingDisplay}>
                   ★ {participantRatings[profileInDetail.id] ?? "—/4"}
@@ -1015,13 +1046,20 @@ export default function HomeScreen() {
                       openParticipantProfile({ id: p.profile_id, username: p.username ?? p.user_name, avatar_url: p.avatar_url ?? null, sports_interests: p.sports_interests ?? [], recently_abandoned_at: p.recently_abandoned_at ?? null });
                     }}
                   >
-                    {p.avatar_url ? (
-                      <Image source={{ uri: p.avatar_url }} style={styles.participantAvatar} />
-                    ) : (
-                      <View style={styles.participantAvatarPlaceholder}>
-                        <Text style={styles.participantAvatarText}>{(p.username ?? p.user_name)[0].toUpperCase()}</Text>
-                      </View>
-                    )}
+                    {(() => {
+                      const border = AVATAR_BORDERS.find((b) => b.id === p.equipped_border_id);
+                      return (
+                        <View style={[styles.participantAvatarRing, border ? { borderColor: border.color, borderWidth: 3 } : {}]}>
+                          {p.avatar_url ? (
+                            <Image source={{ uri: p.avatar_url }} style={styles.participantAvatar} />
+                          ) : (
+                            <View style={styles.participantAvatarPlaceholder}>
+                              <Text style={styles.participantAvatarText}>{(p.username ?? p.user_name)[0].toUpperCase()}</Text>
+                            </View>
+                          )}
+                        </View>
+                      );
+                    })()}
                     <View style={styles.participantInfo}>
                       <View style={styles.participantNameRow}>
                         <Text style={styles.participantName}>{p.username ?? p.user_name}</Text>
@@ -1121,13 +1159,20 @@ export default function HomeScreen() {
             {rateParticipants.map((p) => (
               <View key={p.id} style={styles.ratePlayerCard}>
                 <View style={styles.ratePlayerLeft}>
-                  {p.avatar_url ? (
-                    <Image source={{ uri: p.avatar_url }} style={styles.participantAvatar} />
-                  ) : (
-                    <View style={styles.participantAvatarPlaceholder}>
-                      <Text style={styles.participantAvatarText}>{p.username[0].toUpperCase()}</Text>
-                    </View>
-                  )}
+                  {(() => {
+                    const border = AVATAR_BORDERS.find((b) => b.id === p.equipped_border_id);
+                    return (
+                      <View style={[styles.participantAvatarRing, border ? { borderColor: border.color, borderWidth: 3 } : {}]}>
+                        {p.avatar_url ? (
+                          <Image source={{ uri: p.avatar_url }} style={styles.participantAvatar} />
+                        ) : (
+                          <View style={styles.participantAvatarPlaceholder}>
+                            <Text style={styles.participantAvatarText}>{p.username[0].toUpperCase()}</Text>
+                          </View>
+                        )}
+                      </View>
+                    );
+                  })()}
                   <Text style={styles.ratePlayerName}>{p.username}</Text>
                 </View>
                 <View style={styles.rateStarsRow}>
@@ -1295,8 +1340,9 @@ function makeStyles(c: Colors, isDark = false) { return StyleSheet.create({
   chatRowText: { flex: 1, fontSize: 15, fontWeight: "500", color: c.text },
   chatRowArrow: { fontSize: 18, color: c.placeholder },
   participantCard: { flexDirection: "row", alignItems: "center", backgroundColor: c.surface, borderRadius: 12, borderWidth: 1, borderColor: c.border, padding: 12, marginBottom: 10 },
-  participantAvatar: { width: 44, height: 44, borderRadius: 22, marginRight: 12 },
-  participantAvatarPlaceholder: { width: 44, height: 44, borderRadius: 22, backgroundColor: "#212121", alignItems: "center", justifyContent: "center", marginRight: 12 },
+  participantAvatarRing: { borderRadius: 25, padding: 2, marginRight: 12 },
+  participantAvatar: { width: 44, height: 44, borderRadius: 22 },
+  participantAvatarPlaceholder: { width: 44, height: 44, borderRadius: 22, backgroundColor: "#212121", alignItems: "center", justifyContent: "center" },
   participantAvatarText: { color: "#fff", fontWeight: "700", fontSize: 18 },
   participantInfo: { flex: 1 },
   participantNameRow: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 2 },
@@ -1327,8 +1373,9 @@ function makeStyles(c: Colors, isDark = false) { return StyleSheet.create({
   rateEmptySub: { fontSize: 13, color: c.textFaint, textAlign: "center" },
   participantArrow: { fontSize: 20, color: c.placeholder },
   profileHeader: { alignItems: "center", marginBottom: 24 },
-  profileAvatar: { width: 80, height: 80, borderRadius: 40, marginBottom: 12 },
-  profileAvatarPlaceholder: { width: 80, height: 80, borderRadius: 40, backgroundColor: "#212121", alignItems: "center", justifyContent: "center", marginBottom: 12 },
+  profileAvatarRing: { borderRadius: 44, padding: 2, marginBottom: 12 },
+  profileAvatar: { width: 80, height: 80, borderRadius: 40 },
+  profileAvatarPlaceholder: { width: 80, height: 80, borderRadius: 40, backgroundColor: "#212121", alignItems: "center", justifyContent: "center" },
   profileAvatarText: { fontSize: 32, fontWeight: "700", color: "#fff" },
   profileUsername: { fontSize: 20, fontWeight: "700", color: c.text },
   sportsRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 8 },

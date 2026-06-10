@@ -228,7 +228,7 @@ export default function ProfileScreen() {
     const { data: rows } = await supabase.from("friends").select("requester_id, receiver_id").eq("status", "accepted").or(`requester_id.eq.${user.id},receiver_id.eq.${user.id}`);
     if (!rows || rows.length === 0) { setFriends([]); return; }
     const ids = rows.map((r: any) => r.requester_id === user.id ? r.receiver_id : r.requester_id);
-    const { data: profiles } = await supabase.from("profiles").select("id, username, avatar_url, sports_interests, recently_abandoned_at").in("id", ids);
+    const { data: profiles } = await supabase.from("profiles").select("id, username, avatar_url, sports_interests, recently_abandoned_at, equipped_border_id").in("id", ids);
     if (profiles) setFriends(profiles);
   }, []);
 
@@ -876,13 +876,20 @@ export default function ProfileScreen() {
               ListEmptyComponent={<Text style={styles.emptyText}>No friends yet. Find players in the Search tab!</Text>}
               renderItem={({ item: f }) => (
                 <Pressable style={styles.friendCard} onPress={() => openFriendProfile(f)}>
-                  {f.avatar_url ? (
-                    <Image source={{ uri: f.avatar_url }} style={styles.friendAvatar} />
-                  ) : (
-                    <View style={styles.friendAvatarPlaceholder}>
-                      <Text style={styles.friendAvatarText}>{f.username[0].toUpperCase()}</Text>
-                    </View>
-                  )}
+                  {(() => {
+                    const border = AVATAR_BORDERS.find((b) => b.id === f.equipped_border_id);
+                    return (
+                      <View style={[styles.friendAvatarRing, border ? { borderColor: border.color, borderWidth: 3 } : {}]}>
+                        {f.avatar_url ? (
+                          <Image source={{ uri: f.avatar_url }} style={styles.friendAvatar} />
+                        ) : (
+                          <View style={styles.friendAvatarPlaceholder}>
+                            <Text style={styles.friendAvatarText}>{f.username[0].toUpperCase()}</Text>
+                          </View>
+                        )}
+                      </View>
+                    );
+                  })()}
                   <View style={styles.friendInfo}>
                     <Text style={styles.friendUsername}>{f.username}</Text>
                     {f.sports_interests.length > 0 && (
@@ -914,13 +921,20 @@ export default function ProfileScreen() {
           ) : (
             <ScrollView contentContainerStyle={styles.modalList}>
               <View style={styles.friendProfileHeader}>
-                {selectedFriend?.avatar_url ? (
-                  <Image source={{ uri: selectedFriend.avatar_url }} style={styles.friendProfileAvatar} />
-                ) : (
-                  <View style={styles.friendProfileAvatarPlaceholder}>
-                    <Text style={styles.friendProfileAvatarText}>{(selectedFriend?.username ?? "?")[0].toUpperCase()}</Text>
-                  </View>
-                )}
+                {(() => {
+                  const border = AVATAR_BORDERS.find((b) => b.id === selectedFriend?.equipped_border_id);
+                  return (
+                    <View style={[styles.friendProfileAvatarRing, border ? { borderColor: border.color, borderWidth: 4 } : {}]}>
+                      {selectedFriend?.avatar_url ? (
+                        <Image source={{ uri: selectedFriend.avatar_url }} style={styles.friendProfileAvatar} />
+                      ) : (
+                        <View style={styles.friendProfileAvatarPlaceholder}>
+                          <Text style={styles.friendProfileAvatarText}>{(selectedFriend?.username ?? "?")[0].toUpperCase()}</Text>
+                        </View>
+                      )}
+                    </View>
+                  );
+                })()}
                 <View style={styles.usernameRow}>
                   <Text style={styles.friendProfileUsername}>{selectedFriend?.username}</Text>
                   <Text style={styles.usernameRating}>
@@ -1081,16 +1095,18 @@ function makeStyles(c: Colors) { return StyleSheet.create({
   reviewComment: { fontSize: 13, color: c.textSub, lineHeight: 20 },
   emptyText: { fontSize: 13, color: c.placeholder, textAlign: "center", marginTop: 16 },
   friendCard: { flexDirection: "row", alignItems: "center", backgroundColor: c.surface, borderRadius: 12, borderWidth: 1, borderColor: c.border, padding: 12, marginBottom: 10 },
-  friendAvatar: { width: 44, height: 44, borderRadius: 22, marginRight: 12 },
-  friendAvatarPlaceholder: { width: 44, height: 44, borderRadius: 22, backgroundColor: "#212121", alignItems: "center", justifyContent: "center", marginRight: 12 },
+  friendAvatarRing: { borderRadius: 25, padding: 2, marginRight: 12 },
+  friendAvatar: { width: 44, height: 44, borderRadius: 22 },
+  friendAvatarPlaceholder: { width: 44, height: 44, borderRadius: 22, backgroundColor: "#212121", alignItems: "center", justifyContent: "center" },
   friendAvatarText: { color: "#fff", fontWeight: "700", fontSize: 18 },
   friendInfo: { flex: 1 },
   friendUsername: { fontSize: 15, fontWeight: "600", color: c.text, marginBottom: 2 },
   friendSports: { fontSize: 12, color: c.textFaint },
   friendArrow: { fontSize: 20, color: c.placeholder },
   friendProfileHeader: { alignItems: "center", marginBottom: 24, paddingTop: 8 },
-  friendProfileAvatar: { width: 80, height: 80, borderRadius: 40, marginBottom: 12 },
-  friendProfileAvatarPlaceholder: { width: 80, height: 80, borderRadius: 40, backgroundColor: "#212121", alignItems: "center", justifyContent: "center", marginBottom: 12 },
+  friendProfileAvatarRing: { borderRadius: 44, padding: 2, marginBottom: 12 },
+  friendProfileAvatar: { width: 80, height: 80, borderRadius: 40 },
+  friendProfileAvatarPlaceholder: { width: 80, height: 80, borderRadius: 40, backgroundColor: "#212121", alignItems: "center", justifyContent: "center" },
   friendProfileAvatarText: { fontSize: 32, fontWeight: "700", color: "#fff" },
   friendProfileUsername: { fontSize: 20, fontWeight: "700", color: c.text, marginBottom: 10 },
   removeFriendBtn: { paddingHorizontal: 16, paddingVertical: 7, borderRadius: 8, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface },
