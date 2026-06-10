@@ -34,19 +34,23 @@ export async function setupNotifications(): Promise<void> {
   }
   if (finalStatus !== 'granted') return;
 
-  // Save push token for remote "player joined" notifications.
-  // Requires EAS project — skipped on simulator or if not configured.
-  const projectId = (Constants.expoConfig?.extra as any)?.eas?.projectId as string | undefined;
-  if (!projectId) return;
+  const projectId =
+    (Constants.expoConfig?.extra as any)?.eas?.projectId as string | undefined ??
+    Constants.easConfig?.projectId as string | undefined;
+
+  if (!projectId) {
+    console.warn('[Notifications] No EAS projectId found — push token not registered. Add extra.eas.projectId to app.json.');
+    return;
+  }
 
   try {
-    const { data: tokenData } = await Notifications.getExpoPushTokenAsync({ projectId });
+    const { data: token } = await Notifications.getExpoPushTokenAsync({ projectId });
     const { data: { user } } = await supabase.auth.getUser();
-    if (user && tokenData) {
-      await supabase.from('profiles').update({ expo_push_token: tokenData }).eq('id', user.id);
+    if (user && token) {
+      await supabase.from('profiles').update({ expo_push_token: token }).eq('id', user.id);
     }
-  } catch {
-    // Simulator or no valid EAS project — local notifications still work fine
+  } catch (e) {
+    console.warn('[Notifications] Failed to get push token:', e);
   }
 }
 
@@ -99,8 +103,8 @@ export async function syncGameStartNotifications(
   await AsyncStorage.setItem(NOTIF_MAP_KEY, JSON.stringify(nextMap));
 }
 
-export function notifyCreatorOnJoin(gameId: string, joinerName: string, joinerId: string): void {
+export function notifyGameStatus(gameId: string, event: 'started' | 'ended' | 'cancelled'): void {
   supabase.functions
-    .invoke('push-notification', { body: { game_id: gameId, joiner_name: joinerName, joiner_id: joinerId } })
+    .invoke('game-status-notifications', { body: { game_id: gameId, event } })
     .catch(() => {});
 }

@@ -11,7 +11,7 @@ import GameCard from "../components/GameCard";
 import CreateGameModal from "../components/CreateGameModal";
 import ChatModal from "../components/ChatModal";
 import { useTheme, Colors } from "../lib/theme";
-import { syncGameStartNotifications, notifyCreatorOnJoin } from "../lib/notifications";
+import { syncGameStartNotifications, notifyGameStatus } from "../lib/notifications";
 
 type Participant = {
   user_name: string;
@@ -135,12 +135,14 @@ export default function HomeScreen() {
   const cleanupExpiredGames = useCallback(async () => {
     const now = new Date().toISOString();
     // Open games that have started but end_time hasn't passed → in_progress
-    await supabase.from("games").update({ status: "in_progress" }).eq("status", "open").not("end_time", "is", null).lt("start_time", now).gt("end_time", now);
+    const { data: newlyStarted } = await supabase.from("games").update({ status: "in_progress" }).eq("status", "open").not("end_time", "is", null).lt("start_time", now).gt("end_time", now).select("id");
+    (newlyStarted ?? []).forEach((g: any) => notifyGameStatus(g.id, "started"));
     // In_progress games whose end_time has passed → closed; capture for coin awards
     const { data: newlyClosed } = await supabase.from("games").update({ status: "closed" }).eq("status", "in_progress").lt("end_time", now).select("id, created_by");
     if (newlyClosed && newlyClosed.length > 0) {
       (async () => {
         for (const game of newlyClosed as any[]) {
+          notifyGameStatus(game.id, "ended");
           const { data: parts } = await supabase.from("game_participants").select("user_id").eq("game_id", game.id).not("user_id", "is", null);
           const partList = (parts ?? []) as any[];
           const othersJoined = partList.some((p) => p.user_id && p.user_id !== game.created_by);
@@ -155,7 +157,26 @@ export default function HomeScreen() {
       })();
     }
     // Open games with no end_time that have started → closed
-    await supabase.from("games").update({ status: "closed" }).eq("status", "open").is("end_time", null).lt("start_time", now);
+    const { data: newlyClosedNoEnd } = await supabase.from("games").update({ status: "closed" }).eq("status", "open").is("end_time", null).lt("start_time", now).select("id");
+    (newlyClosedNoEnd ?? []).forEach((g: any) => notifyGameStatus(g.id, "ended"));
+    // Open games that skipped in_progress entirely (app was closed between start and end) → closed
+    const { data: newlyClosedSkipped } = await supabase.from("games").update({ status: "closed" }).eq("status", "open").not("end_time", "is", null).lt("end_time", now).select("id, created_by");
+    if (newlyClosedSkipped && newlyClosedSkipped.length > 0) {
+      (async () => {
+        for (const game of newlyClosedSkipped as any[]) {
+          notifyGameStatus(game.id, "ended");
+          const { data: parts } = await supabase.from("game_participants").select("user_id").eq("game_id", game.id).not("user_id", "is", null);
+          const partList = (parts ?? []) as any[];
+          const othersJoined = partList.some((p) => p.user_id && p.user_id !== game.created_by);
+          if (othersJoined) {
+            for (const p of partList) {
+              if (p.user_id) await awardCoins(p.user_id, 2, "game_complete", game.id);
+            }
+            if (game.created_by) await awardCoins(game.created_by, 5, "host_complete", game.id);
+          }
+        }
+      })();
+    }
   }, []);
 
   const fetchGames = useCallback(async () => {
@@ -444,7 +465,6 @@ export default function HomeScreen() {
     if (!user) return;
     const { error } = await supabase.from("game_participants").insert({ game_id: game.id, user_name: user.email, user_id: user.id });
     if (error) { Alert.alert("Error", error.message); return; }
-    notifyCreatorOnJoin(game.id, currentUsername ?? user.email?.split("@")[0] ?? "Someone", user.id);
     setJoinedIds((prev) => new Set(prev).add(game.id));
     fetchGames();
   }
@@ -547,8 +567,9 @@ export default function HomeScreen() {
       { text: "Keep it", style: "cancel" },
       { text: "Delete", style: "destructive", onPress: async () => {
         const { error } = await supabase.from("games").update({ status: "cancelled" }).eq("id", game.id);
-        if (error) Alert.alert("Error", error.message);
-        else fetchGames();
+        if (error) { Alert.alert("Error", error.message); return; }
+        notifyGameStatus(game.id, "cancelled");
+        fetchGames();
       }},
     ]);
   }
