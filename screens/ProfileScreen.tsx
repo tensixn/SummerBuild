@@ -98,6 +98,7 @@ type Game = {
   skill_level: string | null;
   max_players: number;
   current_players: number;
+  status?: string;
 };
 
 type Rating = {
@@ -154,6 +155,7 @@ export default function ProfileScreen() {
   const [currentStreak, setCurrentStreak] = useState(0);
   const [longestStreak, setLongestStreak] = useState(0);
   const [friendCurrentStreak, setFriendCurrentStreak] = useState(0);
+  const [friendNextGames, setFriendNextGames] = useState<Record<string, Game | null>>({});
   const [friendLongestStreak, setFriendLongestStreak] = useState(0);
 
   // Friend profile view state
@@ -231,6 +233,23 @@ export default function ProfileScreen() {
     const ids = rows.map((r: any) => r.requester_id === user.id ? r.receiver_id : r.requester_id);
     const { data: profiles } = await supabase.from("profiles").select("id, username, avatar_url, sports_interests, recently_abandoned_at, equipped_border_id").in("id", ids);
     if (profiles) setFriends(profiles);
+    // Fetch next upcoming game for each friend
+    const nextGamesMap: Record<string, Game | null> = {};
+    await Promise.all(ids.map(async (friendId: string) => {
+      const { data: parts } = await supabase.from("game_participants").select("game_id").eq("user_id", friendId);
+      const participantIds = (parts ?? []).map((p: any) => p.game_id as string);
+      let nextGame: Game | null = null;
+      if (participantIds.length > 0) {
+        const { data: games } = await supabase.from("games_with_counts").select("*").in("id", participantIds).in("status", ["open", "in_progress"]).order("start_time", { ascending: true }).limit(1);
+        nextGame = games?.[0] ?? null;
+      }
+      if (!nextGame) {
+        const { data: created } = await supabase.from("games_with_counts").select("*").eq("created_by", friendId).in("status", ["open", "in_progress"]).order("start_time", { ascending: true }).limit(1);
+        nextGame = created?.[0] ?? null;
+      }
+      nextGamesMap[friendId] = nextGame;
+    }));
+    setFriendNextGames(nextGamesMap);
   }, []);
 
   const fetchOwnRatings = useCallback(async () => {
@@ -281,26 +300,30 @@ export default function ProfileScreen() {
       }
     }
 
-    const { data: participations } = await supabase.from("game_participants").select("game_id").eq("user_name", friend.username);
-    if (participations && participations.length > 0) {
-      const ids = participations.map((p: any) => p.game_id);
-      const { data: games } = await supabase.from("games_with_counts").select("*").in("id", ids).eq("status", "open").gte("start_time", new Date().toISOString()).order("start_time", { ascending: true });
-      if (games) setFriendUpcomingGames(games);
+    const { data: participations } = await supabase.from("game_participants").select("game_id").eq("user_id", friend.id);
+    const participantGameIds = (participations ?? []).map((p: any) => p.game_id as string);
 
-      if (user) {
-        const { data: myParts } = await supabase.from("game_participants").select("game_id").eq("user_id", user.id);
-        if (myParts && myParts.length > 0) {
-          const myIds = myParts.map((p: any) => p.game_id);
-          const { data: friendParts } = await supabase.from("game_participants").select("game_id").eq("user_id", friend.id).in("game_id", myIds);
-          if (friendParts && friendParts.length > 0) {
-            const sharedIds = friendParts.map((p: any) => p.game_id);
-            const { data: completed } = await supabase.from("games").select("id").in("id", sharedIds).lte("start_time", new Date().toISOString()).limit(1);
-            setCanRateFriend((completed?.length ?? 0) > 0);
-          }
+    const { data: createdGames } = await supabase.from("games_with_counts").select("*").eq("created_by", friend.id).in("status", ["open", "in_progress"]).order("start_time", { ascending: true });
+    let joinedGames: Game[] = [];
+    if (participantGameIds.length > 0) {
+      const { data: jg } = await supabase.from("games_with_counts").select("*").in("id", participantGameIds).in("status", ["open", "in_progress"]).order("start_time", { ascending: true });
+      joinedGames = jg ?? [];
+    }
+    const seen = new Set<string>();
+    const merged = [...(createdGames ?? []), ...joinedGames].filter((g: Game) => { if (seen.has(g.id)) return false; seen.add(g.id); return true; });
+    merged.sort((a: Game, b: Game) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime());
+    setFriendUpcomingGames(merged);
+
+    if (user && participantGameIds.length > 0) {
+      const { data: myParts } = await supabase.from("game_participants").select("game_id").eq("user_id", user.id);
+      if (myParts && myParts.length > 0) {
+        const myIds = myParts.map((p: any) => p.game_id as string);
+        const sharedIds = participantGameIds.filter(id => myIds.includes(id));
+        if (sharedIds.length > 0) {
+          const { data: completed } = await supabase.from("games").select("id").in("id", sharedIds).lte("start_time", new Date().toISOString()).limit(1);
+          setCanRateFriend((completed?.length ?? 0) > 0);
         }
       }
-    } else {
-      setFriendUpcomingGames([]);
     }
     const { data: friendParts } = await supabase.from("game_participants").select("game_id").eq("user_id", friend.id);
     if (friendParts && friendParts.length > 0) {
@@ -490,7 +513,8 @@ export default function ProfileScreen() {
     setSelectedSports((prev) => prev.includes(sport) ? prev.filter((s) => s !== sport) : [...prev, sport]);
   }
 
-  function formatTime(isoString: string) {
+  function formatTime(isoString: string, status?: string) {
+    if (status === "in_progress") return "In Progress";
     const diff = new Date(isoString).getTime() - Date.now();
     const mins = Math.round(diff / 60000);
     if (mins < 0) return "ended";
@@ -889,9 +913,13 @@ export default function ProfileScreen() {
                   })()}
                   <View style={styles.friendInfo}>
                     <Text style={styles.friendUsername}>{f.username}</Text>
-                    {f.sports_interests.length > 0 && (
+                    {friendNextGames[f.id] ? (
+                      <Text style={styles.friendNextGame} numberOfLines={1}>
+                        ⚡ {friendNextGames[f.id]!.sport} · {formatDate(friendNextGames[f.id]!.start_time)}
+                      </Text>
+                    ) : f.sports_interests.length > 0 ? (
                       <Text style={styles.friendSports} numberOfLines={1}>{f.sports_interests.join(" · ")}</Text>
-                    )}
+                    ) : null}
                   </View>
                   <Text style={styles.friendArrow}>›</Text>
                 </Pressable>
@@ -966,19 +994,33 @@ export default function ProfileScreen() {
                 )}
               </View>
 
+              {/* Next upcoming game shown prominently below sports interests */}
+              {friendUpcomingGames.length > 0 && (
+                <View style={styles.nextGameCard}>
+                  <Text style={styles.nextGameLabel}>Next Game</Text>
+                  <View style={styles.gameCardTop}>
+                    <Text style={styles.nextGameSport}>{friendUpcomingGames[0].sport}</Text>
+                    <Text style={styles.nextGameTime}>{formatTime(friendUpcomingGames[0].start_time, friendUpcomingGames[0].status)}</Text>
+                  </View>
+                  <Text style={styles.nextGameLocation}>📍 {friendUpcomingGames[0].location}</Text>
+                  <Text style={styles.nextGameDate}>{formatDate(friendUpcomingGames[0].start_time)}</Text>
+                  <Text style={styles.nextGameMeta}>{friendUpcomingGames[0].current_players}/{friendUpcomingGames[0].max_players} players · {friendUpcomingGames[0].skill_level}</Text>
+                </View>
+              )}
+
               <Text style={styles.sectionLabel}>Upcoming Games ({friendUpcomingGames.length})</Text>
               {friendUpcomingGames.length === 0 ? (
                 <Text style={styles.emptyText}>No upcoming games.</Text>
               ) : (
-                friendUpcomingGames.map((game) => (
-                  <View key={game.id} style={styles.gameCard}>
+                friendUpcomingGames.map((game, i) => (
+                  <View key={game.id} style={[styles.upcomingGameCard, i === 0 && styles.upcomingGameCardFirst]}>
                     <View style={styles.gameCardTop}>
-                      <Text style={styles.gameCardSport}>{game.sport}</Text>
-                      <Text style={styles.gameCardTime}>{formatTime(game.start_time)}</Text>
+                      <Text style={styles.upcomingGameSport}>{game.sport}</Text>
+                      <Text style={styles.upcomingGameTime}>{formatTime(game.start_time, game.status)}</Text>
                     </View>
-                    <Text style={styles.gameCardLocation}>{game.location}</Text>
-                    <Text style={styles.gameCardDate}>{formatDate(game.start_time)}</Text>
-                    <Text style={styles.gameCardMeta}>{game.current_players}/{game.max_players} players · {game.skill_level}</Text>
+                    <Text style={styles.upcomingGameLocation}>📍 {game.location}</Text>
+                    <Text style={styles.upcomingGameDate}>{formatDate(game.start_time)}</Text>
+                    <Text style={styles.upcomingGameMeta}>{game.current_players}/{game.max_players} players · {game.skill_level}</Text>
                   </View>
                 ))
               )}
@@ -1097,6 +1139,7 @@ function makeStyles(c: Colors) { return StyleSheet.create({
   friendInfo: { flex: 1 },
   friendUsername: { fontSize: 15, fontWeight: "600", color: c.text, marginBottom: 2 },
   friendSports: { fontSize: 12, color: c.textFaint },
+  friendNextGame: { fontSize: 12, color: "#4CAF50", fontWeight: "500" },
   friendArrow: { fontSize: 20, color: c.placeholder },
   friendProfileHeader: { alignItems: "center", marginBottom: 24, paddingTop: 8 },
   friendProfileAvatarRing: { borderRadius: 44, padding: 2, marginBottom: 12 },
@@ -1136,6 +1179,20 @@ function makeStyles(c: Colors) { return StyleSheet.create({
   modalTitle: { fontSize: 18, fontWeight: "700", color: c.text },
   modalList: { padding: 20, paddingBottom: 48 },
   gameCard: { backgroundColor: c.surface, borderRadius: 12, borderWidth: 1, borderColor: c.border, padding: 14, marginBottom: 10 },
+  nextGameCard: { backgroundColor: "#4CAF50", borderRadius: 14, padding: 16, marginBottom: 16 },
+  nextGameLabel: { fontSize: 11, fontWeight: "700", color: "rgba(255,255,255,0.75)", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 6 },
+  nextGameSport: { fontSize: 18, fontWeight: "700", color: "#fff", flex: 1 },
+  nextGameTime: { fontSize: 13, fontWeight: "600", color: "rgba(255,255,255,0.85)" },
+  nextGameLocation: { fontSize: 13, color: "rgba(255,255,255,0.9)", marginTop: 4 },
+  nextGameDate: { fontSize: 12, color: "rgba(255,255,255,0.75)", marginTop: 2 },
+  nextGameMeta: { fontSize: 12, color: "rgba(255,255,255,0.75)", marginTop: 4 },
+  upcomingGameCard: { backgroundColor: c.surface, borderRadius: 12, borderWidth: 1, borderColor: c.border, padding: 14, marginBottom: 8 },
+  upcomingGameCardFirst: { borderColor: "#4CAF50", borderWidth: 1.5 },
+  upcomingGameSport: { fontSize: 15, fontWeight: "600", color: c.text, flex: 1 },
+  upcomingGameTime: { fontSize: 13, fontWeight: "500", color: c.textSub },
+  upcomingGameLocation: { fontSize: 13, color: c.textSub, marginTop: 3 },
+  upcomingGameDate: { fontSize: 12, color: "#4CAF50", marginTop: 2 },
+  upcomingGameMeta: { fontSize: 12, color: c.textFaint, marginTop: 3 },
   gameCardTop: { flexDirection: "row", justifyContent: "space-between", marginBottom: 4 },
   gameCardSport: { fontSize: 14, fontWeight: "600", color: c.text },
   gameCardTime: { fontSize: 12, color: c.textFaint },

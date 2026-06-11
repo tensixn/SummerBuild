@@ -126,6 +126,7 @@ export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGam
   const [profileInDetail, setProfileInDetail] = useState<Profile | null>(null);
   const [profileInDetailReviews, setProfileInDetailReviews] = useState<Review[]>([]);
   const [profileInDetailStats, setProfileInDetailStats] = useState<{ joined: number; created: number; abandoned: number } | null>(null);
+  const [profileInDetailFriendStatus, setProfileInDetailFriendStatus] = useState<"none" | "pending" | "friends">("none");
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [allNotifications, setAllNotifications] = useState<Notification[]>([]);
   const [showNotifModal, setShowNotifModal] = useState(false);
@@ -414,7 +415,7 @@ export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGam
     const { data: rows } = await supabase.from("game_participants").select("user_name, user_id").eq("game_id", game.id);
     if (!rows || rows.length === 0) { setParticipants([]); setParticipantRatings({}); setLoadingParticipants(false); return; }
     const userIds = rows.map((r: any) => r.user_id).filter(Boolean) as string[];
-    let profileMap: Record<string, { username: string; avatar_url: string | null; sports_interests: string[]; recently_abandoned_at: string | null }> = {};
+    let profileMap: Record<string, { username: string; avatar_url: string | null; sports_interests: string[]; recently_abandoned_at: string | null; equipped_border_id: string | null }> = {};
     if (userIds.length > 0) {
       const [profilesRes, ratingsRes] = await Promise.all([
         supabase.from("profiles").select("id, username, avatar_url, sports_interests, recently_abandoned_at, equipped_border_id").in("id", userIds),
@@ -443,6 +444,8 @@ export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGam
   async function openParticipantProfile(profile: Profile) {
     setProfileInDetail(profile);
     setProfileInDetailStats(null);
+    setProfileInDetailFriendStatus("none");
+    const { data: { user } } = await supabase.auth.getUser();
     const [reviewsRes, joinedRes, createdRes, profileRes] = await Promise.all([
       supabase.from("reviews").select("*").eq("profile_id", profile.id).order("created_at", { ascending: false }),
       supabase.from("game_participants").select("*", { count: "exact", head: true }).eq("user_id", profile.id),
@@ -456,6 +459,23 @@ export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGam
       abandoned: profileRes.data?.abandoned_count ?? 0,
     });
     setProfileInDetail((prev) => prev ? { ...prev, equipped_border_id: profileRes.data?.equipped_border_id ?? null } : prev);
+    // Check friend status between current user and this profile
+    if (user) {
+      const { data: fr } = await supabase.from("friends").select("status")
+        .or(`and(requester_id.eq.${user.id},receiver_id.eq.${profile.id}),and(requester_id.eq.${profile.id},receiver_id.eq.${user.id})`);
+      if (fr && fr.length > 0) {
+        setProfileInDetailFriendStatus(fr[0].status === "accepted" ? "friends" : "pending");
+      } else {
+        setProfileInDetailFriendStatus("none");
+      }
+    }
+  }
+
+  async function sendFriendRequestFromProfile() {
+    if (!profileInDetail || !currentUserId) return;
+    const { error } = await supabase.from("friends").insert({ requester_id: currentUserId, receiver_id: profileInDetail.id, status: "pending" });
+    if (!error) setProfileInDetailFriendStatus("pending");
+    else Alert.alert("Error", error.message);
   }
 
   async function openProfile(profile: Profile) {
@@ -564,7 +584,7 @@ export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGam
         .select("user_id")
         .eq("type", "game_invite")
         .eq("related_game_id", game.id);
-      const alreadyInvitedIds = new Set((existingInvites ?? []).map((n: any) => n.user_id));
+      const alreadyInvitedIds = new Set<string>((existingInvites ?? []).map((n: any) => n.user_id as string));
       setInviteableFriends(allFriends);
       setInvitedIds(alreadyInvitedIds);
       setShowInviteView(true);
@@ -1051,7 +1071,7 @@ export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGam
 
       {/* Game Detail Modal */}
       <Modal visible={selectedGame !== null} animationType="slide" presentationStyle="pageSheet"
-        onDismiss={() => { setProfileInDetail(null); setProfileInDetailReviews([]); setShowInviteView(false); }}>
+        onDismiss={() => { setProfileInDetail(null); setProfileInDetailReviews([]); setProfileInDetailFriendStatus("none"); setShowInviteView(false); }}>
         <SafeAreaView style={styles.modalSafe}>
           <View style={styles.modalHeader}>
             {showInviteView ? (
@@ -1059,13 +1079,13 @@ export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGam
                 <Text style={styles.backBtnText}>‹ Game</Text>
               </Pressable>
             ) : profileInDetail ? (
-              <Pressable onPress={() => { setProfileInDetail(null); setProfileInDetailReviews([]); }} style={styles.backBtn}>
+              <Pressable onPress={() => { setProfileInDetail(null); setProfileInDetailReviews([]); setProfileInDetailFriendStatus("none"); }} style={styles.backBtn}>
                 <Text style={styles.backBtnText}>‹ Players</Text>
               </Pressable>
             ) : (
               <Text style={styles.modalTitle}>{selectedGame?.sport} · {selectedGame?.location}</Text>
             )}
-            <CloseButton onPress={() => { setSelectedGame(null); setParticipants([]); setProfileInDetail(null); setProfileInDetailReviews([]); setShowInviteView(false); }} />
+            <CloseButton onPress={() => { setSelectedGame(null); setParticipants([]); setProfileInDetail(null); setProfileInDetailReviews([]); setProfileInDetailFriendStatus("none"); setShowInviteView(false); }} />
           </View>
 
           {showInviteView ? (
@@ -1117,6 +1137,21 @@ export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGam
                 <Text style={styles.profileRatingDisplay}>
                   ★ {participantRatings[profileInDetail.id] ?? "—/4"}
                 </Text>
+                {profileInDetail.id !== currentUserId && (
+                  profileInDetailFriendStatus === "friends" ? (
+                    <View style={styles.friendStatusBadge}>
+                      <Text style={styles.friendStatusBadgeText}>✓ Friends</Text>
+                    </View>
+                  ) : profileInDetailFriendStatus === "pending" ? (
+                    <View style={[styles.friendStatusBadge, styles.friendStatusPending]}>
+                      <Text style={styles.friendStatusBadgeText}>Request Sent</Text>
+                    </View>
+                  ) : (
+                    <Pressable style={styles.addFriendBtn} onPress={sendFriendRequestFromProfile}>
+                      <Text style={styles.addFriendBtnText}>+ Add Friend</Text>
+                    </Pressable>
+                  )
+                )}
                 {profileInDetail.recently_abandoned_at && (
                   <View style={styles.abandonedBadge}>
                     <Text style={styles.abandonedBadgeText}>Recently Abandoned</Text>
@@ -1541,6 +1576,11 @@ function makeStyles(c: Colors, isDark = false) { return StyleSheet.create({
   kickBtn: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6, backgroundColor: "#fdecea", borderWidth: 1, borderColor: "#f5c6c6", marginLeft: 6 },
   kickBtnText: { fontSize: 12, color: "#e53935", fontWeight: "600" },
   profileRatingDisplay: { fontSize: 14, fontWeight: "600", color: "#f59e0b", marginTop: 4, marginBottom: 8 },
+  addFriendBtn: { marginTop: 8, marginBottom: 12, paddingHorizontal: 20, paddingVertical: 8, backgroundColor: "#4CAF50", borderRadius: 20 },
+  addFriendBtnText: { color: "#fff", fontWeight: "700", fontSize: 13 },
+  friendStatusBadge: { marginTop: 8, marginBottom: 12, paddingHorizontal: 16, paddingVertical: 6, backgroundColor: "#e8f5e9", borderRadius: 20 },
+  friendStatusPending: { backgroundColor: isDark ? "#2a2a2a" : "#f5f5f5" },
+  friendStatusBadgeText: { color: "#4CAF50", fontWeight: "600", fontSize: 13 },
   rateNowBtn: { paddingHorizontal: 12, paddingVertical: 6, backgroundColor: c.primary, borderRadius: 8 },
   rateNowBtnText: { color: c.primaryText, fontSize: 12, fontWeight: "600" },
   rateGameSubtitle: { fontSize: 12, color: c.textFaint, marginTop: 2 },
