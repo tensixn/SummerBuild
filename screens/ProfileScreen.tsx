@@ -210,7 +210,7 @@ export default function ProfileScreen() {
     const { data: allParts } = await supabase.from("game_participants").select("game_id").eq("user_id", user.id);
     if (allParts && allParts.length > 0) {
       const allIds = allParts.map((p: any) => p.game_id);
-      const { data: closedGames } = await supabase.from("games").select("end_time").in("id", allIds).eq("status", "closed");
+      const { data: closedGames } = await supabase.from("games").select("end_time").in("id", allIds).eq("status", "completed");
       if (closedGames) {
         const dates = closedGames.map((g: any) => g.end_time).filter(Boolean) as string[];
         const { current, longest } = computeStreak(dates);
@@ -305,7 +305,7 @@ export default function ProfileScreen() {
     const { data: friendParts } = await supabase.from("game_participants").select("game_id").eq("user_id", friend.id);
     if (friendParts && friendParts.length > 0) {
       const friendIds = friendParts.map((p: any) => p.game_id);
-      const { data: friendClosed } = await supabase.from("games").select("end_time").in("id", friendIds).eq("status", "closed");
+      const { data: friendClosed } = await supabase.from("games").select("end_time").in("id", friendIds).eq("status", "completed");
       if (friendClosed) {
         const dates = friendClosed.map((g: any) => g.end_time).filter(Boolean) as string[];
         const { current, longest } = computeStreak(dates);

@@ -103,7 +103,7 @@ export default function LeaderboardScreen() {
         .select("requester_id, receiver_id")
         .eq("status", "accepted")
         .or(`requester_id.eq.${user.id},receiver_id.eq.${user.id}`),
-      supabase.from("games").select("id, start_time").eq("status", "closed"),
+      supabase.from("games").select("id, start_time").eq("status", "completed"),
     ]);
 
     const ids = new Set<string>();
