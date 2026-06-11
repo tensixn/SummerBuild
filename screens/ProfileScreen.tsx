@@ -8,6 +8,7 @@ import * as ImagePicker from "expo-image-picker";
 import { supabase } from "../lib/supabase";
 import { SPORTS } from "../lib/types";
 import { useTheme, Colors } from "../lib/theme";
+import CloseButton from "../components/CloseButton";
 import { Switch } from "react-native";
 
 const SPORT_OPTIONS = SPORTS.filter((s) => s !== "All");
@@ -708,9 +709,7 @@ export default function ProfileScreen() {
             <View style={styles.coinChip}>
               <Text style={styles.coinChipText}>💰 {coins}</Text>
             </View>
-            <Pressable onPress={() => setShowShop(false)}>
-              <Text style={styles.modalClose}>✕</Text>
-            </Pressable>
+            <CloseButton onPress={() => setShowShop(false)} />
           </View>
           <ScrollView contentContainerStyle={styles.shopScrollContent}>
             {/* Earn coins guide */}
@@ -781,9 +780,7 @@ export default function ProfileScreen() {
         <SafeAreaView style={styles.modalSafe}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Settings</Text>
-            <Pressable onPress={() => setShowSettings(false)}>
-              <Text style={styles.modalClose}>✕</Text>
-            </Pressable>
+            <CloseButton onPress={() => setShowSettings(false)} />
           </View>
           <View style={styles.settingsCard}>
             <Pressable style={styles.settingsRow} onPress={() => { setShowSettings(false); setTimeout(() => setShowChangePassword(true), 300); }}>
@@ -810,9 +807,7 @@ export default function ProfileScreen() {
         <SafeAreaView style={styles.modalSafe}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Change Password</Text>
-            <Pressable onPress={() => { setShowChangePassword(false); setNewPassword(""); setConfirmPassword(""); }}>
-              <Text style={styles.modalClose}>✕</Text>
-            </Pressable>
+            <CloseButton onPress={() => { setShowChangePassword(false); setNewPassword(""); setConfirmPassword(""); }} />
           </View>
           <ScrollView contentContainerStyle={styles.modalList}>
             <Text style={styles.pwLabel}>New password</Text>
@@ -855,9 +850,7 @@ export default function ProfileScreen() {
             <Text style={styles.modalTitle}>
               {activeModal === "joined" ? "Games Joined" : activeModal === "created" ? "Games Created" : "Friends"}
             </Text>
-            <Pressable onPress={() => setActiveModal(null)}>
-              <Text style={styles.modalClose}>✕</Text>
-            </Pressable>
+            <CloseButton onPress={() => setActiveModal(null)} />
           </View>
 
           {activeModal === "joined" && (
@@ -915,9 +908,7 @@ export default function ProfileScreen() {
             <Pressable onPress={() => { setSelectedFriend(null); setFriendReviews([]); setFriendRatings([]); setFriendUpcomingGames([]); setFriendReviewText(""); setShowFriendReviews(false); setRatingStars(0); setRatingComment(""); }} style={{ flex: 1 }}>
               <Text style={styles.backBtnText}>‹ Friends</Text>
             </Pressable>
-            <Pressable onPress={() => { setSelectedFriend(null); setActiveModal(null); setFriendReviews([]); setFriendRatings([]); setFriendUpcomingGames([]); setFriendReviewText(""); setShowFriendReviews(false); setRatingStars(0); setRatingComment(""); }}>
-              <Text style={styles.modalClose}>✕</Text>
-            </Pressable>
+            <CloseButton onPress={() => { setSelectedFriend(null); setActiveModal(null); setFriendReviews([]); setFriendRatings([]); setFriendUpcomingGames([]); setFriendReviewText(""); setShowFriendReviews(false); setRatingStars(0); setRatingComment(""); }} />
           </View>
 
           {loadingFriend ? (
@@ -1143,7 +1134,6 @@ function makeStyles(c: Colors) { return StyleSheet.create({
   modalSafe: { flex: 1, backgroundColor: c.bg },
   modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 20, borderBottomWidth: 1, borderBottomColor: c.borderLight },
   modalTitle: { fontSize: 18, fontWeight: "700", color: c.text },
-  modalClose: { fontSize: 16, color: c.textFaint },
   modalList: { padding: 20, paddingBottom: 48 },
   gameCard: { backgroundColor: c.surface, borderRadius: 12, borderWidth: 1, borderColor: c.border, padding: 14, marginBottom: 10 },
   gameCardTop: { flexDirection: "row", justifyContent: "space-between", marginBottom: 4 },
