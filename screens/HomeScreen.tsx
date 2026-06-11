@@ -88,7 +88,7 @@ export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGam
   const upcomingGames = useMemo(() => {
     const now = new Date().toISOString();
     return games
-      .filter((g) => joinedIds.has(g.id) && g.status === "open" && g.start_time >= now)
+      .filter((g) => joinedIds.has(g.id) && ["open", "full"].includes(g.status) && g.start_time >= now)
       .sort((a, b) => a.start_time.localeCompare(b.start_time));
   }, [games, joinedIds]);
 
@@ -148,8 +148,8 @@ export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGam
     // Open games that have started but end_time hasn't passed → in_progress
     const { data: newlyStarted } = await supabase.from("games").update({ status: "in_progress" }).eq("status", "open").not("end_time", "is", null).lt("start_time", now).gt("end_time", now).select("id");
     (newlyStarted ?? []).forEach((g: any) => notifyGameStatus(g.id, "started"));
-    // In_progress games whose end_time has passed → closed; capture for coin awards
-    const { data: newlyClosed } = await supabase.from("games").update({ status: "closed" }).eq("status", "in_progress").lt("end_time", now).select("id, created_by");
+    // In_progress games whose end_time has passed → completed; capture for coin awards
+    const { data: newlyClosed } = await supabase.from("games").update({ status: "completed" }).eq("status", "in_progress").lt("end_time", now).select("id, created_by");
     if (newlyClosed && newlyClosed.length > 0) {
       (async () => {
         for (const game of newlyClosed as any[]) {
@@ -167,11 +167,11 @@ export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGam
         }
       })();
     }
-    // Open games with no end_time that have started → closed
-    const { data: newlyClosedNoEnd } = await supabase.from("games").update({ status: "closed" }).eq("status", "open").is("end_time", null).lt("start_time", now).select("id");
+    // Open games with no end_time that have started → completed
+    const { data: newlyClosedNoEnd } = await supabase.from("games").update({ status: "completed" }).in("status", ["open", "full"]).is("end_time", null).lt("start_time", now).select("id");
     (newlyClosedNoEnd ?? []).forEach((g: any) => notifyGameStatus(g.id, "ended"));
-    // Open games that skipped in_progress entirely (app was closed between start and end) → closed
-    const { data: newlyClosedSkipped } = await supabase.from("games").update({ status: "closed" }).eq("status", "open").not("end_time", "is", null).lt("end_time", now).select("id, created_by");
+    // Open/full games that skipped in_progress entirely (app was closed between start and end) → completed
+    const { data: newlyClosedSkipped } = await supabase.from("games").update({ status: "completed" }).in("status", ["open", "full"]).not("end_time", "is", null).lt("end_time", now).select("id, created_by");
     if (newlyClosedSkipped && newlyClosedSkipped.length > 0) {
       (async () => {
         for (const game of newlyClosedSkipped as any[]) {
@@ -246,7 +246,7 @@ export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGam
     const completedIds = new Set(completions?.map((c: any) => c.game_id) ?? []);
     const pendingIds = gameIds.filter((id: string) => !completedIds.has(id));
     if (pendingIds.length === 0) { setRatableGames([]); return; }
-    const { data: games } = await supabase.from("games_with_counts").select("*").in("id", pendingIds).lte("start_time", new Date().toISOString()).eq("status", "closed").order("start_time", { ascending: false });
+    const { data: games } = await supabase.from("games_with_counts").select("*").in("id", pendingIds).lte("start_time", new Date().toISOString()).eq("status", "completed").order("start_time", { ascending: false });
     setRatableGames(games ?? []);
   }, []);
 
@@ -265,7 +265,7 @@ export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGam
     const { data: parts } = await supabase.from("game_participants").select("game_id").eq("user_id", user.id);
     if (!parts || parts.length === 0) return;
     const gameIds = parts.map((p: any) => p.game_id);
-    const { data: completedAfter } = await supabase.from("games").select("id").in("id", gameIds).eq("status", "closed").gt("start_time", profile.recently_abandoned_at).limit(1);
+    const { data: completedAfter } = await supabase.from("games").select("id").in("id", gameIds).eq("status", "completed").gt("start_time", profile.recently_abandoned_at).limit(1);
     if (completedAfter && completedAfter.length > 0) {
       await supabase.from("profiles").update({ recently_abandoned_at: null }).eq("id", user.id);
     }
