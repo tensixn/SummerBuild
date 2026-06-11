@@ -10,6 +10,7 @@ import { Game, Sport, SPORTS } from "../lib/types";
 import GameCard from "../components/GameCard";
 import CreateGameModal from "../components/CreateGameModal";
 import ChatModal from "../components/ChatModal";
+import CloseButton from "../components/CloseButton";
 import { useTheme, Colors } from "../lib/theme";
 import { syncGameStartNotifications, notifyGameStatus } from "../lib/notifications";
 
@@ -485,6 +486,9 @@ export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGam
     const { error } = await supabase.from("game_participants").insert({ game_id: game.id, user_name: user.email, user_id: user.id });
     if (error) { Alert.alert("Error", error.message); return; }
     setJoinedIds((prev) => new Set(prev).add(game.id));
+    if (selectedGame?.id === game.id) {
+      openGame({ ...game, current_players: game.current_players + 1 });
+    }
     fetchGames();
   }
 
@@ -499,6 +503,9 @@ export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGam
       const { data: pd } = await supabase.from("profiles").select("abandoned_count").eq("id", user.id).single();
       const { error: updateErr } = await supabase.from("profiles").update({ recently_abandoned_at: new Date().toISOString(), abandoned_count: (pd?.abandoned_count ?? 0) + 1 }).eq("id", user.id);
       if (updateErr) Alert.alert("Error updating profile", updateErr.message);
+    }
+    if (selectedGame?.id === game.id) {
+      openGame({ ...game, current_players: Math.max(0, game.current_players - 1) });
     }
     fetchGames();
   }
@@ -986,9 +993,7 @@ export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGam
         <SafeAreaView style={styles.modalSafe}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>📬 Mailbox</Text>
-            <Pressable onPress={() => setShowMailbox(false)}>
-              <Text style={styles.modalClose}>✕</Text>
-            </Pressable>
+            <CloseButton onPress={() => setShowMailbox(false)} />
           </View>
           <FlatList
             data={allNotifications}
@@ -1060,9 +1065,7 @@ export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGam
             ) : (
               <Text style={styles.modalTitle}>{selectedGame?.sport} · {selectedGame?.location}</Text>
             )}
-            <Pressable onPress={() => { setSelectedGame(null); setParticipants([]); setProfileInDetail(null); setProfileInDetailReviews([]); setShowInviteView(false); }}>
-              <Text style={styles.modalClose}>✕</Text>
-            </Pressable>
+            <CloseButton onPress={() => { setSelectedGame(null); setParticipants([]); setProfileInDetail(null); setProfileInDetailReviews([]); setShowInviteView(false); }} />
           </View>
 
           {showInviteView ? (
@@ -1232,11 +1235,11 @@ export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGam
                         )}
                       </View>
                       <View style={styles.participantRatingRow}>
-                        {p.sports_interests && p.sports_interests.length > 0 && (
-                          <Text style={styles.participantSports} numberOfLines={1}>{p.sports_interests.join(" · ")}</Text>
-                        )}
                         {p.profile_id && (
                           <Text style={styles.participantRating}>★ {participantRatings[p.profile_id] ?? "—/4"}</Text>
+                        )}
+                        {p.sports_interests && p.sports_interests.length > 0 && (
+                          <Text style={styles.participantSports} numberOfLines={1}>{p.sports_interests.join(" · ")}</Text>
                         )}
                         {p.recently_abandoned_at && (
                           <View style={styles.abandonedBadge}>
@@ -1249,9 +1252,7 @@ export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGam
                       <Pressable style={styles.kickBtn} onPress={(e) => { e.stopPropagation(); kickPlayer(selectedGame!.id, p.profile_id!, p.username ?? p.user_name); }}>
                         <Text style={styles.kickBtnText}>Kick</Text>
                       </Pressable>
-                    ) : (
-                      p.profile_id && <Text style={styles.participantArrow}>›</Text>
-                    )}
+                    ) : null}
                   </Pressable>
                 ))
               )}
@@ -1326,9 +1327,7 @@ export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGam
               <Text style={styles.modalTitle}>⭐ Rate Players</Text>
               {rateGame && <Text style={styles.rateGameSubtitle}>{rateGame.sport} · {rateGame.location}</Text>}
             </View>
-            <Pressable onPress={() => { setShowRateModal(false); setRateGame(null); setRateParticipants([]); setRatingSelections({}); setReviewSelections({}); }}>
-              <Text style={styles.modalClose}>✕</Text>
-            </Pressable>
+            <CloseButton onPress={() => { setShowRateModal(false); setRateGame(null); setRateParticipants([]); setRatingSelections({}); setReviewSelections({}); }} />
           </View>
           <ScrollView contentContainerStyle={styles.modalContent}>
             {rateParticipants.length === 0 ? (
@@ -1394,9 +1393,7 @@ export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGam
         <SafeAreaView style={styles.modalSafe}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Profile</Text>
-            <Pressable onPress={() => { setSelectedProfile(null); setProfileReviews([]); setReviewText(""); }}>
-              <Text style={styles.modalClose}>✕</Text>
-            </Pressable>
+            <CloseButton onPress={() => { setSelectedProfile(null); setProfileReviews([]); setReviewText(""); }} />
           </View>
           <ScrollView contentContainerStyle={styles.modalContent}>
             <View style={styles.profileHeader}>
@@ -1512,7 +1509,6 @@ function makeStyles(c: Colors, isDark = false) { return StyleSheet.create({
   modalSafe: { flex: 1, backgroundColor: c.bg },
   modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 20, borderBottomWidth: 1, borderBottomColor: c.borderLight },
   modalTitle: { fontSize: 17, fontWeight: "700", color: c.text, flex: 1, marginRight: 8 },
-  modalClose: { fontSize: 16, color: c.textFaint },
   backBtn: { flex: 1, marginRight: 8 },
   backBtnText: { fontSize: 16, color: c.text, fontWeight: "500" },
   modalContent: { padding: 20, paddingBottom: 48 },
@@ -1540,7 +1536,7 @@ function makeStyles(c: Colors, isDark = false) { return StyleSheet.create({
   participantName: { fontSize: 15, fontWeight: "600", color: c.text },
   creatorBadge: { fontSize: 11, fontWeight: "600", color: "#1565c0", backgroundColor: "#e3f2fd", paddingHorizontal: 7, paddingVertical: 2, borderRadius: 10 },
   participantRatingRow: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
-  participantSports: { fontSize: 12, color: c.textFaint, flex: 1 },
+  participantSports: { fontSize: 12, color: c.textFaint, flexShrink: 1 },
   participantRating: { fontSize: 12, color: "#f59e0b", fontWeight: "600" },
   kickBtn: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6, backgroundColor: "#fdecea", borderWidth: 1, borderColor: "#f5c6c6", marginLeft: 6 },
   kickBtnText: { fontSize: 12, color: "#e53935", fontWeight: "600" },

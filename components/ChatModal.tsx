@@ -6,6 +6,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../lib/supabase";
 import { useTheme, Colors } from "../lib/theme";
+import CloseButton from "./CloseButton";
 
 type Message = {
   id: string;
@@ -163,9 +164,7 @@ export default function ChatModal({ visible, onClose, gameId, gameTitle }: Props
             <Text style={styles.headerTitle} numberOfLines={1}>{gameTitle}</Text>
             <Text style={styles.headerSub}>Game Chat</Text>
           </View>
-          <Pressable onPress={onClose} style={styles.closeBtn}>
-            <Text style={styles.closeBtnText}>✕</Text>
-          </Pressable>
+          <CloseButton onPress={onClose} />
         </View>
 
         {loading ? (
@@ -236,12 +235,6 @@ function makeStyles(c: Colors) {
     },
     headerTitle: { fontSize: 16, fontWeight: "700", color: c.text },
     headerSub: { fontSize: 12, color: c.textFaint, marginTop: 2 },
-    closeBtn: {
-      width: 30, height: 30, borderRadius: 15,
-      backgroundColor: c.borderLight,
-      alignItems: "center", justifyContent: "center", marginLeft: 12,
-    },
-    closeBtnText: { fontSize: 13, color: c.textMuted },
     center: { flex: 1, alignItems: "center", justifyContent: "center" },
     msgList: { padding: 16, paddingBottom: 8, flexGrow: 1 },
     emptyText: {

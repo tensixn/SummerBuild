@@ -11,6 +11,7 @@ import { Court, NTU_COURTS, NTU_CENTER, findCourt } from "../lib/courts";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme, Colors } from "../lib/theme";
 import ChatModal from "../components/ChatModal";
+import CloseButton from "../components/CloseButton";
 
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
@@ -326,9 +327,7 @@ export default function MapScreen() {
                       ))}
                     </View>
                   </View>
-                  <Pressable onPress={collapseSheet} style={styles.closeBtn}>
-                    <Text style={styles.closeBtnText}>✕</Text>
-                  </Pressable>
+                  <CloseButton onPress={collapseSheet} />
                 </View>
                 <Text style={styles.sheetSectionLabel}>
                   {courtGames.length > 0 ? `${courtGames.length} game${courtGames.length !== 1 ? "s" : ""} here` : "No active games here"}
@@ -346,9 +345,7 @@ export default function MapScreen() {
               <>
                 <View style={styles.sheetHeader}>
                   <Text style={styles.sheetTitle}>All Games</Text>
-                  <Pressable onPress={collapseSheet} style={styles.closeBtn}>
-                    <Text style={styles.closeBtnText}>✕</Text>
-                  </Pressable>
+                  <CloseButton onPress={collapseSheet} />
                 </View>
                 <Text style={styles.sheetSectionLabel}>Sorted by distance</Text>
                 <ScrollView style={styles.sheetScroll} showsVerticalScrollIndicator={false}>
@@ -522,11 +519,6 @@ function makeStyles(c: Colors) { return StyleSheet.create({
   sportsRow: { flexDirection: "row", gap: 6, flexWrap: "wrap" },
   sportTag: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
   sportTagText: { fontSize: 11, fontWeight: "600" },
-  closeBtn: {
-    width: 28, height: 28, borderRadius: 14, backgroundColor: c.borderLight,
-    alignItems: "center", justifyContent: "center", marginLeft: 8,
-  },
-  closeBtnText: { fontSize: 12, color: c.textMuted },
   sheetSectionLabel: {
     fontSize: 11, fontWeight: "600", letterSpacing: 0.6,
     textTransform: "uppercase", color: c.placeholder,

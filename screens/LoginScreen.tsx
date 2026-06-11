@@ -33,14 +33,16 @@ export default function LoginScreen({ onSwitch, onLogin }: {
 
   async function handleGoogleLogin() {
     setGoogleLoading(true);
-    const redirectTo = "exp+ntu-sports-app:///";
+    const redirectTo = "exp+ntu-sports:///";
     try {
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: { redirectTo, skipBrowserRedirect: true },
       });
       if (error) throw error;
+      console.log("OAuth URL:", data.url);
       const result = await WebBrowser.openAuthSessionAsync(data.url!, redirectTo);
+      console.log("Auth result:", result.type);
       if (result.type === "success") {
         const url = new URL(result.url);
         const params = new URLSearchParams(url.hash.replace("#", ""));
