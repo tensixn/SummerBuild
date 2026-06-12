@@ -75,10 +75,10 @@ export const NTU_COURTS: Court[] = [
 ];
 
 export const NTU_CENTER = {
-  latitude: 1.3483,
+  latitude: 1.3455,
   longitude: 103.6850,
-  latitudeDelta: 0.018,
-  longitudeDelta: 0.018,
+  latitudeDelta: 0.024,
+  longitudeDelta: 0.024,
 };
 
 export function findCourt(locationName: string): Court | undefined {

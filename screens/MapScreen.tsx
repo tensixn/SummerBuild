@@ -6,6 +6,7 @@ import {
 import MapView, { Marker, Circle, PROVIDER_DEFAULT } from "react-native-maps";
 import * as Location from "expo-location";
 import { supabase } from "../lib/supabase";
+import { promoteFromWaitlist } from "../lib/waitlist";
 import { Game } from "../lib/types";
 import { Court, NTU_COURTS, NTU_CENTER, findCourt } from "../lib/courts";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -63,6 +64,30 @@ function formatTime(isoString: string): string {
   return m ? `in ${h}h ${m}m` : `in ${h}h`;
 }
 
+// 0 (empty) → 1 (packed), based on total active players (15+ = max intensity)
+function courtBusynessScore(courtId: string, games: Game[]): number {
+  const cGames = games.filter(g => findCourt(g.location)?.id === courtId);
+  if (cGames.length === 0) return 0;
+  const totalPlayers = cGames.reduce((s, g) => s + g.current_players, 0);
+  return Math.min(totalPlayers / 15, 1);
+}
+
+// Returns [r, g, b] for the busyness gradient (green → yellow → red)
+function busyRGB(score: number): [number, number, number] {
+  if (score < 0.5) {
+    const t = score / 0.5;
+    return [Math.round(76 + t * 179), Math.round(175 - t * 23), Math.round(80 * (1 - t))];
+  }
+  const t = (score - 0.5) / 0.5;
+  return [Math.round(255 - t * 11), Math.round(152 - t * 85), Math.round(t * 54)];
+}
+
+function busyStrokeColor(score: number): string {
+  if (score < 0.33) return "rgba(76,175,80,0.75)";
+  if (score < 0.66) return "rgba(255,152,0,0.85)";
+  return "rgba(244,67,54,0.9)";
+}
+
 type UserLocation = { latitude: number; longitude: number } | null;
 
 export default function MapScreen() {
@@ -81,6 +106,8 @@ export default function MapScreen() {
   const [loadingGames, setLoadingGames] = useState(true);
   const [sportFilter, setSportFilter] = useState("All");
   const [chatGame, setChatGame] = useState<Game | null>(null);
+  const [waitlistedIds, setWaitlistedIds] = useState<Set<string>>(new Set());
+  const [waitlistPositions, setWaitlistPositions] = useState<Record<string, number>>({});
 
   useEffect(() => {
     (async () => {
@@ -109,17 +136,61 @@ export default function MapScreen() {
     if (data) setJoinedIds(new Set(data.map((r: any) => r.game_id)));
   }, []);
 
+  const fetchWaitlisted = useCallback(async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { data: myEntries } = await supabase
+      .from("game_waitlist").select("game_id, created_at").eq("user_id", user.id);
+    if (!myEntries || myEntries.length === 0) {
+      setWaitlistedIds(new Set()); setWaitlistPositions({}); return;
+    }
+    const gameIds = myEntries.map((r: any) => r.game_id);
+    setWaitlistedIds(new Set(gameIds));
+    const { data: allEntries } = await supabase
+      .from("game_waitlist").select("game_id, user_id, created_at")
+      .in("game_id", gameIds).order("created_at", { ascending: true });
+    const positions: Record<string, number> = {};
+    for (const gameId of gameIds) {
+      const queue = (allEntries ?? []).filter((e: any) => e.game_id === gameId);
+      const pos = queue.findIndex((e: any) => e.user_id === user.id) + 1;
+      positions[gameId] = pos > 0 ? pos : 1;
+    }
+    setWaitlistPositions(positions);
+  }, []);
+
+  async function joinWaitlist(game: Game) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { error } = await supabase.from("game_waitlist").insert({
+      game_id: game.id, user_id: user.id, user_name: user.email,
+    });
+    if (error) { Alert.alert("Error", error.message); return; }
+    fetchWaitlisted();
+  }
+
+  async function leaveWaitlist(game: Game) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    await supabase.from("game_waitlist").delete().eq("game_id", game.id).eq("user_id", user.id);
+    setWaitlistedIds((prev) => { const n = new Set(prev); n.delete(game.id); return n; });
+    setWaitlistPositions((prev) => { const n = { ...prev }; delete n[game.id]; return n; });
+  }
+
   useEffect(() => {
     fetchGames();
     fetchJoined();
+    fetchWaitlisted();
     const channel = supabase.channel("map-realtime")
       .on("postgres_changes", { event: "*", schema: "public", table: "games" }, fetchGames)
       .on("postgres_changes", { event: "*", schema: "public", table: "game_participants" }, () => {
         fetchGames(); fetchJoined();
       })
+      .on("postgres_changes", { event: "*", schema: "public", table: "game_waitlist" }, () => {
+        fetchWaitlisted();
+      })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [fetchGames, fetchJoined]);
+  }, [fetchGames, fetchJoined, fetchWaitlisted]);
 
   const filteredGames = sportFilter === "All" ? games : games.filter(g => g.sport === sportFilter);
 
@@ -180,6 +251,7 @@ export default function MapScreen() {
     const { error } = await supabase.from("game_participants").delete().eq("game_id", game.id).eq("user_name", user.email);
     if (error) { Alert.alert("Error", error.message); return; }
     setJoinedIds((prev) => { const next = new Set(prev); next.delete(game.id); return next; });
+    await promoteFromWaitlist(game.id);
     fetchGames();
     setCourtGames((prev) => prev.map((g) => g.id === game.id ? { ...g, current_players: g.current_players - 1 } : g));
   }
@@ -226,9 +298,31 @@ export default function MapScreen() {
         style={styles.map}
         provider={PROVIDER_DEFAULT}
         initialRegion={NTU_CENTER}
+        onMapReady={() => mapRef.current?.animateToRegion(NTU_CENTER, 1)}
+        onRegionChangeComplete={(region) => {
+          if (
+            region.latitude  > 1.360 || region.latitude  < 1.336 ||
+            region.longitude > 103.700 || region.longitude < 103.668
+          ) {
+            mapRef.current?.animateToRegion(NTU_CENTER, 350);
+          }
+        }}
         showsUserLocation
         showsMyLocationButton={false}
       >
+        {/* Crowd heatmap — 3 concentric rings fade outward to simulate a radial gradient */}
+        {NTU_COURTS.flatMap((court) => {
+          const score = courtBusynessScore(court.id, filteredGames);
+          if (score === 0) return [];
+          const [r, g, b] = busyRGB(score);
+          const center = { latitude: court.latitude, longitude: court.longitude };
+          return [
+            <Circle key={`heat-${court.id}-o`} center={center} radius={220} fillColor={`rgba(${r},${g},${b},0.09)`} strokeColor="transparent" strokeWidth={0} />,
+            <Circle key={`heat-${court.id}-m`} center={center} radius={140} fillColor={`rgba(${r},${g},${b},0.20)`} strokeColor="transparent" strokeWidth={0} />,
+            <Circle key={`heat-${court.id}-i`} center={center} radius={75}  fillColor={`rgba(${r},${g},${b},0.38)`} strokeColor={busyStrokeColor(score)} strokeWidth={1.5} />,
+          ];
+        })}
+
         {NTU_COURTS.map((court) => {
           const hasGame = activeCourtIds.has(court.id);
           const courtFilteredGames = filteredGames.filter(g => findCourt(g.location)?.id === court.id);
@@ -287,6 +381,19 @@ export default function MapScreen() {
         <Text style={styles.myLocIcon}>◎</Text>
       </Pressable>
 
+      {/* Heatmap legend */}
+      {activeCourtIds.size > 0 && (
+        <View style={styles.legend}>
+          <Text style={styles.legendTitle}>Activity</Text>
+          {([ ["#4caf50", "Quiet"], ["#ff9800", "Active"], ["#f44336", "Busy"] ] as [string, string][]).map(([color, label]) => (
+            <View key={label} style={styles.legendRow}>
+              <View style={[styles.legendDot, { backgroundColor: color }]} />
+              <Text style={styles.legendLabel}>{label}</Text>
+            </View>
+          ))}
+        </View>
+      )}
+
       {/* Always-visible bottom sheet */}
       <Animated.View style={[styles.sheet, { height: sheetHeight }]}>
         {/* Peek bar — tap to expand */}
@@ -336,7 +443,7 @@ export default function MapScreen() {
                   {courtGames.length === 0 ? (
                     <Text style={styles.noGamesText}>No games right now.{"\n"}Go to the Games tab to create one.</Text>
                   ) : (
-                    courtGames.map((game) => <GameRow key={game.id} game={game} joined={joinedIds.has(game.id)} onJoin={joinGame} onLeave={leaveGame} onChat={(g) => setChatGame(g)} />)
+                    courtGames.map((game) => <GameRow key={game.id} game={game} joined={joinedIds.has(game.id)} isWaitlisted={waitlistedIds.has(game.id)} waitlistPosition={waitlistPositions[game.id]} onJoin={joinGame} onLeave={leaveGame} onJoinWaitlist={joinWaitlist} onLeaveWaitlist={leaveWaitlist} onChat={(g) => setChatGame(g)} />)
                   )}
                 </ScrollView>
               </>
@@ -375,8 +482,10 @@ export default function MapScreen() {
   );
 }
 
-function GameRow({ game, joined, onJoin, onLeave, onChat, showCourt }: {
-  game: Game; joined: boolean; onJoin: (g: Game) => void; onLeave: (g: Game) => void;
+function GameRow({ game, joined, isWaitlisted, waitlistPosition, onJoin, onLeave, onJoinWaitlist, onLeaveWaitlist, onChat, showCourt }: {
+  game: Game; joined: boolean; isWaitlisted?: boolean; waitlistPosition?: number;
+  onJoin: (g: Game) => void; onLeave: (g: Game) => void;
+  onJoinWaitlist?: (g: Game) => void; onLeaveWaitlist?: (g: Game) => void;
   onChat: (g: Game) => void; showCourt?: boolean;
 }) {
   const { colors } = useTheme();
@@ -410,9 +519,20 @@ function GameRow({ game, joined, onJoin, onLeave, onChat, showCourt }: {
               <Text style={styles.leaveBtnText}>Leave</Text>
             </Pressable>
           </>
+        ) : isWaitlisted ? (
+          <>
+            <View style={styles.waitlistBadge}><Text style={styles.waitlistBadgeText}>#{waitlistPosition ?? "?"} in line</Text></View>
+            <Pressable style={styles.leaveWaitlistBtn} onPress={() => onLeaveWaitlist?.(game)}>
+              <Text style={styles.leaveWaitlistBtnText}>Leave</Text>
+            </Pressable>
+          </>
+        ) : full ? (
+          <Pressable style={styles.joinWaitlistBtn} onPress={() => onJoinWaitlist?.(game)}>
+            <Text style={styles.joinWaitlistBtnText}>Waitlist</Text>
+          </Pressable>
         ) : (
-          <Pressable style={[styles.joinBtn, full && styles.joinBtnDisabled]} onPress={() => !full && onJoin(game)} disabled={full}>
-            <Text style={[styles.joinBtnText, full && styles.joinBtnTextDisabled]}>{full ? "Full" : "Join"}</Text>
+          <Pressable style={styles.joinBtn} onPress={() => onJoin(game)}>
+            <Text style={styles.joinBtnText}>Join</Text>
           </Pressable>
         )}
       </View>
@@ -550,4 +670,29 @@ function makeStyles(c: Colors) { return StyleSheet.create({
   joinedBadgeText: { fontSize: 12, fontWeight: "500", color: "#2e7d32" },
   leaveBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, backgroundColor: "#fce4ec", borderWidth: 1, borderColor: "#f8bbd0" },
   leaveBtnText: { fontSize: 12, fontWeight: "500", color: "#c62828" },
+  joinWaitlistBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: "#ffb300", backgroundColor: "#fff8e1" },
+  joinWaitlistBtnText: { fontSize: 12, fontWeight: "600", color: "#e65100" },
+  waitlistBadge: { paddingHorizontal: 8, paddingVertical: 6, borderRadius: 8, backgroundColor: "#fff8e1" },
+  waitlistBadgeText: { fontSize: 11, fontWeight: "600", color: "#f57c00" },
+  leaveWaitlistBtn: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: "#fff3e0", borderWidth: 1, borderColor: "#ffe0b2" },
+  leaveWaitlistBtnText: { fontSize: 12, fontWeight: "500", color: "#e65100" },
+  legend: {
+    position: "absolute",
+    bottom: PEEK_HEIGHT + 14,
+    left: 14,
+    backgroundColor: c.surface + "f0",
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+    gap: 4,
+  },
+  legendTitle: { fontSize: 10, fontWeight: "700", color: c.placeholder, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 2 },
+  legendRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  legendDot: { width: 8, height: 8, borderRadius: 4 },
+  legendLabel: { fontSize: 11, color: c.textSub, fontWeight: "500" },
 }); }

@@ -13,6 +13,7 @@ import ChatModal from "../components/ChatModal";
 import CloseButton from "../components/CloseButton";
 import { useTheme, Colors } from "../lib/theme";
 import { syncGameStartNotifications, notifyGameStatus } from "../lib/notifications";
+import { promoteFromWaitlist } from "../lib/waitlist";
 import AvatarWithFrame from "../components/AvatarWithFrame";
 import NotificationModal from "../components/NotificationModal";
 import MailboxModal from "../components/MailboxModal";
@@ -155,6 +156,8 @@ export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGam
   const [inviteableFriends, setInviteableFriends] = useState<InviteFriend[]>([]);
   const [invitedIds, setInvitedIds] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState("");
+  const [waitlistedIds, setWaitlistedIds] = useState<Set<string>>(new Set());
+  const [waitlistPositions, setWaitlistPositions] = useState<Record<string, number>>({});
   const [showAdvancedFilter, setShowAdvancedFilter] = useState(false);
   const [dateFilter, setDateFilter] = useState<string | number | null>(null);
   const [calendarMonth, setCalendarMonth] = useState<Date>(() => {
@@ -240,6 +243,28 @@ export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGam
     if (!user) return;
     const { data } = await supabase.from("game_participants").select("game_id").eq("user_name", user.email);
     if (data) setJoinedIds(new Set(data.map((r: any) => r.game_id)));
+  }, []);
+
+  const fetchWaitlisted = useCallback(async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { data: myEntries } = await supabase
+      .from("game_waitlist").select("game_id, created_at").eq("user_id", user.id);
+    if (!myEntries || myEntries.length === 0) {
+      setWaitlistedIds(new Set()); setWaitlistPositions({}); return;
+    }
+    const gameIds = myEntries.map((r: any) => r.game_id);
+    setWaitlistedIds(new Set(gameIds));
+    const { data: allEntries } = await supabase
+      .from("game_waitlist").select("game_id, user_id, created_at")
+      .in("game_id", gameIds).order("created_at", { ascending: true });
+    const positions: Record<string, number> = {};
+    for (const gameId of gameIds) {
+      const queue = (allEntries ?? []).filter((e: any) => e.game_id === gameId);
+      const pos = queue.findIndex((e: any) => e.user_id === user.id) + 1;
+      positions[gameId] = pos > 0 ? pos : 1;
+    }
+    setWaitlistPositions(positions);
   }, []);
 
 
@@ -393,7 +418,7 @@ export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGam
 
   async function onRefresh() {
     setRefreshing(true);
-    await Promise.all([fetchGames(), fetchJoined(), fetchNotifications(), fetchAllNotifications(), fetchRatableGames(), checkAndClearAbandonedFlag()]);
+    await Promise.all([fetchGames(), fetchJoined(), fetchWaitlisted(), fetchNotifications(), fetchAllNotifications(), fetchRatableGames(), checkAndClearAbandonedFlag()]);
     setRefreshing(false);
   }
 
@@ -408,6 +433,7 @@ export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGam
     });
     fetchGames();
     fetchJoined();
+    fetchWaitlisted();
     fetchNotifications();
     fetchAllNotifications();
     fetchRatableGames();
@@ -425,6 +451,7 @@ export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGam
         setGames((prev) => prev.map((g) => g.id === gameId ? { ...g, current_players: Math.max(0, g.current_players - 1) } : g));
         fetchJoined();
       })
+      .on("postgres_changes", { event: "*", schema: "public", table: "game_waitlist" }, () => { fetchWaitlisted(); })
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications" }, () => { fetchNotifications(); fetchAllNotifications(); })
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "game_messages" }, (payload) => {
         const { game_id, user_id } = payload.new as { game_id: string; user_id: string };
@@ -434,7 +461,7 @@ export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGam
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [fetchGames, silentRefreshGames, fetchJoined, fetchNotifications, fetchAllNotifications, fetchRatableGames, checkAndClearAbandonedFlag]);
+  }, [fetchGames, silentRefreshGames, fetchJoined, fetchWaitlisted, fetchNotifications, fetchAllNotifications, fetchRatableGames, checkAndClearAbandonedFlag]);
 
   async function openGame(game: Game) {
     setSelectedGame(game);
@@ -525,6 +552,24 @@ export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGam
     if (data) setProfileReviews(data);
   }
 
+  async function joinWaitlist(game: Game) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { error } = await supabase.from("game_waitlist").insert({
+      game_id: game.id, user_id: user.id, user_name: user.email,
+    });
+    if (error) { Alert.alert("Error", error.message); return; }
+    fetchWaitlisted();
+  }
+
+  async function leaveWaitlist(game: Game) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    await supabase.from("game_waitlist").delete().eq("game_id", game.id).eq("user_id", user.id);
+    setWaitlistedIds((prev) => { const n = new Set(prev); n.delete(game.id); return n; });
+    setWaitlistPositions((prev) => { const n = { ...prev }; delete n[game.id]; return n; });
+  }
+
   async function joinGame(game: Game) {
     if (game.status === "in_progress" || new Date(game.start_time) <= new Date()) { Alert.alert("Game in progress", "This game has already started and can no longer be joined."); return; }
     if (game.current_players >= game.max_players) { Alert.alert("Full", "This game is already full."); return; }
@@ -551,6 +596,7 @@ export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGam
       const { error: updateErr } = await supabase.from("profiles").update({ recently_abandoned_at: new Date().toISOString(), abandoned_count: (pd?.abandoned_count ?? 0) + 1 }).eq("id", user.id);
       if (updateErr) Alert.alert("Error updating profile", updateErr.message);
     }
+    await promoteFromWaitlist(game.id);
     if (selectedGame?.id === game.id) {
       openGame({ ...game, current_players: Math.max(0, game.current_players - 1) });
     }
@@ -577,6 +623,7 @@ export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGam
         const { error } = await supabase.from("game_participants").delete().eq("game_id", gameId).eq("user_id", userId);
         if (error) { Alert.alert("Error", error.message); return; }
         setParticipants((prev) => prev.filter((p) => p.profile_id !== userId));
+        await promoteFromWaitlist(gameId);
         fetchGames();
       }},
     ]);
@@ -970,8 +1017,12 @@ export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGam
               <GameCard
                 game={item}
                 isJoined={joinedIds.has(item.id)}
+                isWaitlisted={waitlistedIds.has(item.id)}
+                waitlistPosition={waitlistPositions[item.id]}
                 onJoin={joinGame}
                 onLeave={leaveGame}
+                onJoinWaitlist={joinWaitlist}
+                onLeaveWaitlist={leaveWaitlist}
                 onCancel={item.created_by === currentUserId ? deleteGame : undefined}
                 onChat={(g) => { markGameRead(g.id); setChatGame(g); }}
                 hasUnread={joinedIds.has(item.id) && unreadGameIds.has(item.id)}
@@ -1167,10 +1218,19 @@ export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGam
                 <Pressable style={styles.leaveFooterBtn} onPress={() => leaveGame(selectedGame)}>
                   <Text style={styles.leaveFooterBtnText}>Leave Game</Text>
                 </Pressable>
-              ) : selectedGame.current_players >= selectedGame.max_players ? (
-                <View style={styles.fullFooterBtn}>
-                  <Text style={styles.fullFooterBtnText}>Game Full</Text>
+              ) : waitlistedIds.has(selectedGame.id) ? (
+                <View style={styles.waitlistFooterRow}>
+                  <View style={styles.waitlistPosBadge}>
+                    <Text style={styles.waitlistPosText}>#{waitlistPositions[selectedGame.id] ?? "?"} in line</Text>
+                  </View>
+                  <Pressable style={styles.leaveWaitlistFooterBtn} onPress={() => leaveWaitlist(selectedGame)}>
+                    <Text style={styles.leaveWaitlistFooterBtnText}>Leave waitlist</Text>
+                  </Pressable>
                 </View>
+              ) : selectedGame.current_players >= selectedGame.max_players ? (
+                <Pressable style={styles.joinWaitlistFooterBtn} onPress={() => joinWaitlist(selectedGame)}>
+                  <Text style={styles.joinWaitlistFooterBtnText}>Join Waitlist</Text>
+                </Pressable>
               ) : (
                 <Pressable style={styles.joinFooterBtn} onPress={() => joinGame(selectedGame)}>
                   <Text style={styles.joinFooterBtnText}>Join Game</Text>
@@ -1342,6 +1402,13 @@ function makeStyles(c: Colors, isDark = false) { return StyleSheet.create({
   leaveFooterBtnText: { color: "#e74c3c", fontWeight: "700", fontSize: 16 },
   fullFooterBtn: { backgroundColor: c.surface, borderRadius: 12, paddingVertical: 14, alignItems: "center", borderWidth: 1, borderColor: c.border },
   fullFooterBtnText: { color: c.placeholder, fontWeight: "600", fontSize: 16 },
+  joinWaitlistFooterBtn: { backgroundColor: "#fff8e1", borderRadius: 12, paddingVertical: 14, alignItems: "center", borderWidth: 1, borderColor: "#ffb300" },
+  joinWaitlistFooterBtnText: { color: "#e65100", fontWeight: "700", fontSize: 16 },
+  waitlistFooterRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  waitlistPosBadge: { flex: 1, backgroundColor: "#fff8e1", borderRadius: 12, paddingVertical: 14, alignItems: "center" },
+  waitlistPosText: { color: "#e65100", fontWeight: "600", fontSize: 14 },
+  leaveWaitlistFooterBtn: { paddingHorizontal: 16, paddingVertical: 14, borderRadius: 12, backgroundColor: "#fff3e0", borderWidth: 1, borderColor: "#ffe0b2" },
+  leaveWaitlistFooterBtnText: { color: "#e65100", fontWeight: "600", fontSize: 14 },
   chatRowIcon: { fontSize: 18 },
   chatRowText: { fontSize: 15, fontWeight: "500", color: c.text },
   chatRowArrow: { fontSize: 18, color: c.placeholder },
