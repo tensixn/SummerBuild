@@ -13,6 +13,7 @@ import ChatModal from "../components/ChatModal";
 import CloseButton from "../components/CloseButton";
 import { useTheme, Colors } from "../lib/theme";
 import { syncGameStartNotifications, notifyGameStatus } from "../lib/notifications";
+import AvatarWithFrame from "../components/AvatarWithFrame";
 
 type Participant = {
   user_name: string;
@@ -32,18 +33,6 @@ type Profile = {
   recently_abandoned_at?: string | null;
   equipped_border_id?: string | null;
 };
-
-const AVATAR_BORDERS = [
-  { id: "bronze",    color: "#cd7f32" },
-  { id: "silver",    color: "#a8a8a8" },
-  { id: "neon_blue", color: "#00b4ff" },
-  { id: "neon_pink", color: "#ff2d78" },
-  { id: "emerald",   color: "#2ecc71" },
-  { id: "gold",      color: "#ffd700" },
-  { id: "ruby",      color: "#e74c3c" },
-  { id: "diamond",   color: "#a8e6f0" },
-  { id: "champion",  color: "#ff6b35" },
-];
 
 type Review = {
   id: string;
@@ -1119,20 +1108,13 @@ export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGam
           ) : profileInDetail ? (
             <ScrollView contentContainerStyle={styles.modalContent}>
               <View style={styles.profileHeader}>
-                {(() => {
-                  const border = AVATAR_BORDERS.find((b) => b.id === profileInDetail.equipped_border_id);
-                  return (
-                    <View style={[styles.profileAvatarRing, border ? { borderColor: border.color, borderWidth: 4 } : {}]}>
-                      {profileInDetail.avatar_url ? (
-                        <Image source={{ uri: profileInDetail.avatar_url }} style={styles.profileAvatar} />
-                      ) : (
-                        <View style={styles.profileAvatarPlaceholder}>
-                          <Text style={styles.profileAvatarText}>{profileInDetail.username[0].toUpperCase()}</Text>
-                        </View>
-                      )}
-                    </View>
-                  );
-                })()}
+                <AvatarWithFrame
+                  avatarUrl={profileInDetail.avatar_url}
+                  initial={profileInDetail.username}
+                  equippedBorderId={profileInDetail.equipped_border_id}
+                  size="large"
+                  style={{ marginBottom: 12 }}
+                />
                 <Text style={styles.profileUsername}>{profileInDetail.username}</Text>
                 <Text style={styles.profileRatingDisplay}>
                   ★ {participantRatings[profileInDetail.id] ?? "—/4"}
@@ -1248,20 +1230,13 @@ export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGam
                       openParticipantProfile({ id: p.profile_id, username: p.username ?? p.user_name, avatar_url: p.avatar_url ?? null, sports_interests: p.sports_interests ?? [], recently_abandoned_at: p.recently_abandoned_at ?? null });
                     }}
                   >
-                    {(() => {
-                      const border = AVATAR_BORDERS.find((b) => b.id === p.equipped_border_id);
-                      return (
-                        <View style={[styles.participantAvatarRing, border ? { borderColor: border.color, borderWidth: 3 } : {}]}>
-                          {p.avatar_url ? (
-                            <Image source={{ uri: p.avatar_url }} style={styles.participantAvatar} />
-                          ) : (
-                            <View style={styles.participantAvatarPlaceholder}>
-                              <Text style={styles.participantAvatarText}>{(p.username ?? p.user_name)[0].toUpperCase()}</Text>
-                            </View>
-                          )}
-                        </View>
-                      );
-                    })()}
+                    <AvatarWithFrame
+                      avatarUrl={p.avatar_url}
+                      initial={p.username ?? p.user_name}
+                      equippedBorderId={p.equipped_border_id}
+                      size="small"
+                      style={{ marginRight: 10 }}
+                    />
                     <View style={styles.participantInfo}>
                       <View style={styles.participantNameRow}>
                         <Text style={styles.participantName}>{p.username ?? p.user_name}</Text>
@@ -1375,20 +1350,13 @@ export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGam
             {rateParticipants.map((p) => (
               <View key={p.id} style={styles.ratePlayerCard}>
                 <View style={styles.ratePlayerLeft}>
-                  {(() => {
-                    const border = AVATAR_BORDERS.find((b) => b.id === p.equipped_border_id);
-                    return (
-                      <View style={[styles.participantAvatarRing, border ? { borderColor: border.color, borderWidth: 3 } : {}]}>
-                        {p.avatar_url ? (
-                          <Image source={{ uri: p.avatar_url }} style={styles.participantAvatar} />
-                        ) : (
-                          <View style={styles.participantAvatarPlaceholder}>
-                            <Text style={styles.participantAvatarText}>{p.username[0].toUpperCase()}</Text>
-                          </View>
-                        )}
-                      </View>
-                    );
-                  })()}
+                  <AvatarWithFrame
+                    avatarUrl={p.avatar_url}
+                    initial={p.username}
+                    equippedBorderId={p.equipped_border_id}
+                    size="small"
+                    style={{ marginRight: 10 }}
+                  />
                   <Text style={styles.ratePlayerName}>{p.username}</Text>
                 </View>
                 <View style={styles.rateStarsRow}>

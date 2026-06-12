@@ -6,6 +6,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "../lib/supabase";
 import { useTheme, Colors } from "../lib/theme";
+import AvatarWithFrame from "../components/AvatarWithFrame";
 
 function getMondayOfWeek(dateStr: string): string {
   const d = new Date(dateStr);
@@ -64,17 +65,6 @@ type LeaderEntry = {
   longest: number;
 };
 
-const AVATAR_BORDERS = [
-  { id: "bronze",    color: "#cd7f32" },
-  { id: "silver",    color: "#a8a8a8" },
-  { id: "neon_blue", color: "#00b4ff" },
-  { id: "neon_pink", color: "#ff2d78" },
-  { id: "emerald",   color: "#2ecc71" },
-  { id: "gold",      color: "#ffd700" },
-  { id: "ruby",      color: "#e74c3c" },
-  { id: "diamond",   color: "#a8e6f0" },
-  { id: "champion",  color: "#ff6b35" },
-];
 
 const MEDALS = ["🥇", "🥈", "🥉"];
 
@@ -266,22 +256,12 @@ export default function LeaderboardScreen() {
                     )}
                   </View>
 
-                  {(() => {
-                    const border = AVATAR_BORDERS.find((b) => b.id === entry.equippedBorderId);
-                    return (
-                      <View style={[styles.avatarRing, border ? { borderColor: border.color, borderWidth: 3 } : {}]}>
-                        {entry.avatarUrl ? (
-                          <Image source={{ uri: entry.avatarUrl }} style={styles.avatar} />
-                        ) : (
-                          <View style={styles.avatarPlaceholder}>
-                            <Text style={styles.avatarText}>
-                              {entry.username[0]?.toUpperCase() ?? "?"}
-                            </Text>
-                          </View>
-                        )}
-                      </View>
-                    );
-                  })()}
+                  <AvatarWithFrame
+                    avatarUrl={entry.avatarUrl}
+                    initial={entry.username}
+                    equippedBorderId={entry.equippedBorderId}
+                    size="small"
+                  />
 
                   <View style={styles.info}>
                     <Text style={[styles.username, isMe && styles.usernameMe]} numberOfLines={1}>
