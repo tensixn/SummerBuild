@@ -6,7 +6,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "../lib/supabase";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Game, Sport, SPORTS } from "../lib/types";
+import { Game, Sport, SPORTS, Notification, Profile, Review } from "../lib/types";
 import GameCard from "../components/GameCard";
 import CreateGameModal from "../components/CreateGameModal";
 import ChatModal from "../components/ChatModal";
@@ -14,6 +14,11 @@ import CloseButton from "../components/CloseButton";
 import { useTheme, Colors } from "../lib/theme";
 import { syncGameStartNotifications, notifyGameStatus } from "../lib/notifications";
 import AvatarWithFrame from "../components/AvatarWithFrame";
+import NotificationModal from "../components/NotificationModal";
+import MailboxModal from "../components/MailboxModal";
+import RatingModal from "../components/RatingModal";
+import ParticipantDetailView from "../components/ParticipantDetailView";
+import UpcomingGamesSection from "../components/UpcomingGamesSection";
 
 type Participant = {
   user_name: string;
@@ -23,32 +28,6 @@ type Participant = {
   sports_interests: string[] | null;
   recently_abandoned_at: string | null;
   equipped_border_id: string | null;
-};
-
-type Profile = {
-  id: string;
-  username: string;
-  avatar_url: string | null;
-  sports_interests: string[];
-  recently_abandoned_at?: string | null;
-  equipped_border_id?: string | null;
-};
-
-type Review = {
-  id: string;
-  reviewer_name: string;
-  comment: string;
-  created_at: string;
-};
-
-type Notification = {
-  id: string;
-  message: string;
-  is_read: boolean;
-  created_at: string;
-  type: string | null;
-  related_user_id: string | null;
-  related_game_id: string | null;
 };
 
 type InviteFriend = {
@@ -824,27 +803,12 @@ export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGam
                 <Text style={styles.createBtnText}>+ Create a game</Text>
               </Pressable>
 
-              {upcomingGames.length > 0 && (
-                <View style={styles.upcomingSection}>
-                  <Pressable style={styles.upcomingHeader} onPress={() => setShowUpcoming(!showUpcoming)}>
-                    <Text style={styles.upcomingTitle}>📅 Your Upcoming Games ({upcomingGames.length})</Text>
-                    <Text style={styles.upcomingChevron}>{showUpcoming ? "▲" : "▼"}</Text>
-                  </Pressable>
-                  {showUpcoming && upcomingGames.map((game) => (
-                    <Pressable key={game.id} style={styles.upcomingCard} onPress={() => openGame(game)}>
-                      <View style={styles.upcomingCardLeft}>
-                        <Text style={styles.upcomingSport}>{game.sport}</Text>
-                        <Text style={styles.upcomingLocation}>{game.location}</Text>
-                        <Text style={styles.upcomingTime}>{formatDate(game.start_time)}</Text>
-                      </View>
-                      <View style={styles.upcomingSlots}>
-                        <Text style={styles.upcomingSlotsText}>{game.current_players}/{game.max_players}</Text>
-                        <Text style={styles.upcomingSlotsLabel}>players</Text>
-                      </View>
-                    </Pressable>
-                  ))}
-                </View>
-              )}
+              <UpcomingGamesSection
+                games={upcomingGames}
+                expanded={showUpcoming}
+                onToggle={() => setShowUpcoming(!showUpcoming)}
+                onOpenGame={openGame}
+              />
 
               {ratableGames.length > 0 && (
                 <View style={styles.upcomingSection}>
@@ -1027,95 +991,29 @@ export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGam
         onClose={() => { if (chatGame) markGameRead(chatGame.id); setChatGame(null); }}
       />
 
-      {/* Popup for new notifications */}
-      <Modal visible={showNotifModal} animationType="fade" transparent>
-        <View style={styles.notifOverlay}>
-          <View style={styles.notifModal}>
-            <Text style={styles.notifModalTitle}>🔔 New Notifications</Text>
-            {notifications.map((n) => (
-              <View key={n.id} style={[styles.notifItem, n.type === "game_ended" && styles.notifItemRating]}>
-                {n.type === "game_ended" && <Text style={styles.notifTypeIcon}>⭐ Time to Rate</Text>}
-                <Text style={styles.notifMessage}>{n.message}</Text>
-                <Text style={styles.notifTime}>{new Date(n.created_at).toLocaleDateString()}</Text>
-                {n.type === "friend_request" && (
-                  <View style={styles.friendReqBtns}>
-                    <Pressable style={styles.acceptFriendBtn} onPress={() => acceptFriendRequest(n)}>
-                      <Text style={styles.acceptFriendBtnText}>Accept</Text>
-                    </Pressable>
-                    <Pressable style={styles.declineFriendBtn} onPress={() => declineFriendRequest(n)}>
-                      <Text style={styles.declineFriendBtnText}>Decline</Text>
-                    </Pressable>
-                  </View>
-                )}
-              </View>
-            ))}
-            <Pressable style={styles.notifDismissBtn} onPress={markNotificationsRead}>
-              <Text style={styles.notifDismissText}>Dismiss all</Text>
-            </Pressable>
-          </View>
-        </View>
-      </Modal>
+      <NotificationModal
+        visible={showNotifModal}
+        notifications={notifications}
+        onDismiss={markNotificationsRead}
+        onAcceptFriend={acceptFriendRequest}
+        onDeclineFriend={declineFriendRequest}
+      />
 
-      {/* Mailbox Modal */}
-      <Modal visible={showMailbox} animationType="slide" presentationStyle="pageSheet">
-        <SafeAreaView style={styles.modalSafe}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>📬 Mailbox</Text>
-            <CloseButton onPress={() => setShowMailbox(false)} />
-          </View>
-          <FlatList
-            data={allNotifications}
-            keyExtractor={(n) => n.id}
-            contentContainerStyle={styles.modalContent}
-            ListEmptyComponent={<Text style={styles.emptyText}>No notifications yet.</Text>}
-            refreshControl={
-              <RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await fetchAllNotifications(); setRefreshing(false); }} />
-            }
-            renderItem={({ item: n }) => (
-              <View style={[styles.mailboxItem, n.is_read && styles.mailboxItemRead, n.type === "game_ended" && !n.is_read && styles.mailboxItemRating]}>
-                <View style={styles.mailboxItemRow}>
-                  <Text style={styles.mailboxDot}>
-                    {n.type === "game_ended" ? "⭐" : n.type === "game_invite" ? "📨" : n.is_read ? "○" : "●"}
-                  </Text>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.notifMessage, n.is_read && styles.notifMessageRead]}>{n.message}</Text>
-                    <Text style={styles.notifTime}>{formatDate(n.created_at)}</Text>
-                    {n.type === "friend_request" && !n.is_read && (
-                      <View style={styles.friendReqBtns}>
-                        <Pressable style={styles.acceptFriendBtn} onPress={() => acceptFriendRequest(n)}>
-                          <Text style={styles.acceptFriendBtnText}>Accept</Text>
-                        </Pressable>
-                        <Pressable style={styles.declineFriendBtn} onPress={() => declineFriendRequest(n)}>
-                          <Text style={styles.declineFriendBtnText}>Decline</Text>
-                        </Pressable>
-                      </View>
-                    )}
-                    {n.type === "game_invite" && n.related_game_id && (
-                      <Pressable
-                        style={styles.viewGameBtn}
-                        onPress={() => {
-                          const target = games.find((g) => g.id === n.related_game_id);
-                          if (target) { setShowMailbox(false); openGame(target); }
-                          else Alert.alert("Game not found", "This game may have already ended.");
-                        }}
-                      >
-                        <Text style={styles.viewGameBtnText}>View Game →</Text>
-                      </Pressable>
-                    )}
-                  </View>
-                </View>
-              </View>
-            )}
-          />
-          {allNotifications.some((n) => !n.is_read) && (
-            <View style={styles.mailboxFooter}>
-              <Pressable style={styles.markAllReadBtn} onPress={markAllRead}>
-                <Text style={styles.markAllReadText}>Mark all as read</Text>
-              </Pressable>
-            </View>
-          )}
-        </SafeAreaView>
-      </Modal>
+      <MailboxModal
+        visible={showMailbox}
+        allNotifications={allNotifications}
+        refreshing={refreshing}
+        onClose={() => setShowMailbox(false)}
+        onRefresh={async () => { setRefreshing(true); await fetchAllNotifications(); setRefreshing(false); }}
+        onAcceptFriend={acceptFriendRequest}
+        onDeclineFriend={declineFriendRequest}
+        onMarkAllRead={markAllRead}
+        onViewGameById={(gameId) => {
+          const target = games.find((g) => g.id === gameId);
+          if (target) { setShowMailbox(false); openGame(target); }
+          else Alert.alert("Game not found", "This game may have already ended.");
+        }}
+      />
 
       {/* Game Detail Modal */}
       <Modal visible={selectedGame !== null} animationType="slide" presentationStyle="pageSheet"
@@ -1165,81 +1063,16 @@ export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGam
               )}
             </ScrollView>
           ) : profileInDetail ? (
-            <ScrollView contentContainerStyle={styles.modalContent}>
-              <View style={styles.profileHeader}>
-                <AvatarWithFrame
-                  avatarUrl={profileInDetail.avatar_url}
-                  initial={profileInDetail.username}
-                  equippedBorderId={profileInDetail.equipped_border_id}
-                  size="large"
-                  style={{ marginBottom: 12 }}
-                />
-                <Text style={styles.profileUsername}>{profileInDetail.username}</Text>
-                <Text style={styles.profileRatingDisplay}>
-                  ★ {participantRatings[profileInDetail.id] ?? "—/4"}
-                </Text>
-                {profileInDetail.id !== currentUserId && (
-                  profileInDetailFriendStatus === "friends" ? (
-                    <View style={styles.friendStatusBadge}>
-                      <Text style={styles.friendStatusBadgeText}>✓ Friends</Text>
-                    </View>
-                  ) : profileInDetailFriendStatus === "pending" ? (
-                    <View style={[styles.friendStatusBadge, styles.friendStatusPending]}>
-                      <Text style={styles.friendStatusBadgeText}>Request Sent</Text>
-                    </View>
-                  ) : (
-                    <Pressable style={styles.addFriendBtn} onPress={sendFriendRequestFromProfile}>
-                      <Text style={styles.addFriendBtnText}>+ Add Friend</Text>
-                    </Pressable>
-                  )
-                )}
-                {profileInDetail.recently_abandoned_at && (
-                  <View style={styles.abandonedBadge}>
-                    <Text style={styles.abandonedBadgeText}>Recently Abandoned</Text>
-                  </View>
-                )}
-              </View>
-              <View style={styles.profileStatsRow}>
-                <View style={styles.profileStatItem}>
-                  <Text style={styles.profileStatNum}>{profileInDetailStats?.joined ?? "—"}</Text>
-                  <Text style={styles.profileStatLabel}>Joined</Text>
-                </View>
-                <View style={styles.profileStatDivider} />
-                <View style={styles.profileStatItem}>
-                  <Text style={styles.profileStatNum}>{profileInDetailStats?.created ?? "—"}</Text>
-                  <Text style={styles.profileStatLabel}>Created</Text>
-                </View>
-                <View style={styles.profileStatDivider} />
-                <View style={styles.profileStatItem}>
-                  <Text style={[styles.profileStatNum, (profileInDetailStats?.abandoned ?? 0) > 0 && styles.profileStatNumAbandoned]}>{profileInDetailStats?.abandoned ?? "—"}</Text>
-                  <Text style={styles.profileStatLabel}>Abandoned</Text>
-                </View>
-              </View>
-              <Text style={styles.sectionLabel}>Sports Interests</Text>
-              <View style={styles.sportsRow}>
-                {profileInDetail.sports_interests.length > 0 ? (
-                  profileInDetail.sports_interests.map((s) => (
-                    <View key={s} style={styles.sportChip}><Text style={styles.sportChipText}>{s}</Text></View>
-                  ))
-                ) : (
-                  <Text style={styles.noSportsText}>No sports interests listed.</Text>
-                )}
-              </View>
-              <Text style={styles.sectionLabel}>Reviews ({profileInDetailReviews.length})</Text>
-              {profileInDetailReviews.length === 0 ? (
-                <Text style={styles.emptyText}>No reviews yet.</Text>
-              ) : (
-                profileInDetailReviews.map((r) => (
-                  <View key={r.id} style={styles.reviewCard}>
-                    <View style={styles.reviewHeader}>
-                      <Text style={styles.reviewerName}>{r.reviewer_name}</Text>
-                      <Text style={styles.reviewDate}>{new Date(r.created_at).toLocaleDateString()}</Text>
-                    </View>
-                    <Text style={styles.reviewComment}>{r.comment}</Text>
-                  </View>
-                ))
-              )}
-            </ScrollView>
+            <ParticipantDetailView
+              profile={profileInDetail}
+              reviews={profileInDetailReviews}
+              stats={profileInDetailStats}
+              friendStatus={profileInDetailFriendStatus}
+              currentUserId={currentUserId}
+              participantRatings={participantRatings}
+              onSendFriendRequest={sendFriendRequestFromProfile}
+              contentContainerStyle={styles.modalContent}
+            />
           ) : (
             <ScrollView contentContainerStyle={styles.modalContent}>
               <View style={styles.gameInfoRow}>
@@ -1388,67 +1221,18 @@ export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGam
         </View>
       </Modal>
 
-      {/* Rate Game Modal */}
-      <Modal visible={showRateModal} animationType="slide" presentationStyle="pageSheet">
-        <SafeAreaView style={styles.modalSafe}>
-          <View style={styles.modalHeader}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.modalTitle}>⭐ Rate Players</Text>
-              {rateGame && <Text style={styles.rateGameSubtitle}>{rateGame.sport} · {rateGame.location}</Text>}
-            </View>
-            <CloseButton onPress={() => { setShowRateModal(false); setRateGame(null); setRateParticipants([]); setRatingSelections({}); setReviewSelections({}); }} />
-          </View>
-          <ScrollView contentContainerStyle={styles.modalContent}>
-            {rateParticipants.length === 0 ? (
-              <View style={styles.rateEmptyBox}>
-                <Text style={styles.rateEmptyIcon}>🎉</Text>
-                <Text style={styles.rateEmptyText}>You were the only player!</Text>
-                <Text style={styles.rateEmptySub}>Nothing to rate — tap Done to complete.</Text>
-              </View>
-            ) : null}
-            {rateParticipants.map((p) => (
-              <View key={p.id} style={styles.ratePlayerCard}>
-                <View style={styles.ratePlayerLeft}>
-                  <AvatarWithFrame
-                    avatarUrl={p.avatar_url}
-                    initial={p.username}
-                    equippedBorderId={p.equipped_border_id}
-                    size="small"
-                    style={{ marginRight: 10 }}
-                  />
-                  <Text style={styles.ratePlayerName}>{p.username}</Text>
-                </View>
-                <View style={styles.rateStarsRow}>
-                  {[1, 2, 3, 4].map((s) => (
-                    <Pressable key={s} onPress={() => setRatingSelections((prev) => ({ ...prev, [p.id]: prev[p.id] === s ? 0 : s }))}>
-                      <Text style={{ fontSize: 28, color: s <= (ratingSelections[p.id] ?? 0) ? "#f59e0b" : "#e0e0e0" }}>★</Text>
-                    </Pressable>
-                  ))}
-                </View>
-                <TextInput
-                  style={styles.rateReviewInput}
-                  placeholder="Leave a review (optional)"
-                  value={reviewSelections[p.id] ?? ""}
-                  onChangeText={(t) => setReviewSelections((prev) => ({ ...prev, [p.id]: t }))}
-                  multiline
-                />
-              </View>
-            ))}
-          </ScrollView>
-          <View style={styles.rateFooter}>
-            {rateParticipants.length > 0 && !Object.values(ratingSelections).some((s) => s > 0) && (
-              <Text style={styles.rateHintText}>Rate at least one player to continue</Text>
-            )}
-            <Pressable
-              style={[styles.rateDoneBtn, rateParticipants.length > 0 && !Object.values(ratingSelections).some((s) => s > 0) && styles.rateDoneBtnDisabled]}
-              onPress={submitGameRatings}
-              disabled={submittingGameRating || (rateParticipants.length > 0 && !Object.values(ratingSelections).some((s) => s > 0))}
-            >
-              <Text style={styles.rateDoneBtnText}>{submittingGameRating ? "Submitting..." : "Done Rating"}</Text>
-            </Pressable>
-          </View>
-        </SafeAreaView>
-      </Modal>
+      <RatingModal
+        visible={showRateModal}
+        rateGame={rateGame}
+        rateParticipants={rateParticipants}
+        ratingSelections={ratingSelections}
+        reviewSelections={reviewSelections}
+        submitting={submittingGameRating}
+        onClose={() => { setShowRateModal(false); setRateGame(null); setRateParticipants([]); setRatingSelections({}); setReviewSelections({}); }}
+        onRatingChange={(userId, stars) => setRatingSelections((prev) => ({ ...prev, [userId]: stars }))}
+        onReviewChange={(userId, text) => setReviewSelections((prev) => ({ ...prev, [userId]: text }))}
+        onSubmit={submitGameRatings}
+      />
 
       {/* Profile Modal */}
       <Modal visible={selectedProfile !== null} animationType="slide" presentationStyle="pageSheet">
@@ -1537,37 +1321,10 @@ function makeStyles(c: Colors, isDark = false) { return StyleSheet.create({
   upcomingSport: { fontSize: 14, fontWeight: "600", color: c.text, marginBottom: 2 },
   upcomingLocation: { fontSize: 12, color: c.textMuted, marginBottom: 2 },
   upcomingTime: { fontSize: 11, color: c.textFaint },
-  upcomingSlots: { alignItems: "center" },
-  upcomingSlotsText: { fontSize: 16, fontWeight: "700", color: c.text },
-  upcomingSlotsLabel: { fontSize: 10, color: c.textFaint },
   sectionLabel: { fontSize: 11, fontWeight: "600", letterSpacing: 0.7, textTransform: "uppercase", color: c.placeholder, marginBottom: 12, marginTop: 20 },
   list: { paddingBottom: 40 },
   empty: { alignItems: "center", paddingTop: 48 },
   emptyText: { fontSize: 14, color: c.placeholder, textAlign: "center", lineHeight: 22 },
-  notifOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center", padding: 24 },
-  notifModal: { backgroundColor: c.surface, borderRadius: 16, padding: 24, width: "100%" },
-  notifModalTitle: { fontSize: 18, fontWeight: "700", color: c.text, marginBottom: 16 },
-  notifItem: { backgroundColor: isDark ? "rgba(255,152,0,0.12)" : "#fff3e0", borderRadius: 10, padding: 12, marginBottom: 10, borderWidth: 1, borderColor: isDark ? "rgba(255,152,0,0.25)" : "#ffe0b2" },
-  notifMessage: { fontSize: 13, color: c.text, lineHeight: 20, marginBottom: 4 },
-  notifMessageRead: { color: c.textFaint },
-  notifTime: { fontSize: 11, color: c.textFaint },
-  notifItemRating: { backgroundColor: isDark ? "rgba(245,158,11,0.12)" : "#fffbeb", borderColor: isDark ? "rgba(245,158,11,0.28)" : "#fde68a" },
-  notifTypeIcon: { fontSize: 12, fontWeight: "700", color: "#f59e0b", marginBottom: 4 },
-  mailboxItemRating: { backgroundColor: "#fffbeb", borderColor: "#fde68a" },
-  notifDismissBtn: { backgroundColor: c.primary, borderRadius: 10, padding: 14, alignItems: "center", marginTop: 8 },
-  notifDismissText: { color: c.primaryText, fontWeight: "600", fontSize: 14 },
-  mailboxItem: { backgroundColor: "#fff3e0", borderRadius: 10, padding: 12, marginBottom: 10, borderWidth: 1, borderColor: "#ffe0b2" },
-  mailboxItemRead: { backgroundColor: c.bg, borderColor: c.border },
-  mailboxItemRow: { flexDirection: "row", gap: 10, alignItems: "flex-start" },
-  mailboxDot: { fontSize: 12, color: "#e53935", marginTop: 2 },
-  friendReqBtns: { flexDirection: "row", gap: 8, marginTop: 10 },
-  acceptFriendBtn: { flex: 1, backgroundColor: c.primary, borderRadius: 8, paddingVertical: 8, alignItems: "center" },
-  acceptFriendBtnText: { color: c.primaryText, fontWeight: "600", fontSize: 13 },
-  declineFriendBtn: { flex: 1, backgroundColor: c.surface, borderRadius: 8, paddingVertical: 8, alignItems: "center", borderWidth: 1, borderColor: c.border },
-  declineFriendBtnText: { color: c.textMuted, fontWeight: "600", fontSize: 13 },
-  mailboxFooter: { padding: 20, borderTopWidth: 1, borderTopColor: c.borderLight },
-  markAllReadBtn: { backgroundColor: c.primary, borderRadius: 10, padding: 14, alignItems: "center" },
-  markAllReadText: { color: c.primaryText, fontWeight: "600", fontSize: 14 },
   modalSafe: { flex: 1, backgroundColor: c.bg },
   modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 20, borderBottomWidth: 1, borderBottomColor: c.borderLight },
   modalTitle: { fontSize: 17, fontWeight: "700", color: c.text, flex: 1, marginRight: 8 },
@@ -1602,29 +1359,8 @@ function makeStyles(c: Colors, isDark = false) { return StyleSheet.create({
   participantRating: { fontSize: 12, color: "#f59e0b", fontWeight: "600" },
   kickBtn: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6, backgroundColor: "#fdecea", borderWidth: 1, borderColor: "#f5c6c6", marginLeft: 6 },
   kickBtnText: { fontSize: 12, color: "#e53935", fontWeight: "600" },
-  profileRatingDisplay: { fontSize: 14, fontWeight: "600", color: "#f59e0b", marginTop: 4, marginBottom: 8 },
-  addFriendBtn: { marginTop: 8, marginBottom: 12, paddingHorizontal: 20, paddingVertical: 8, backgroundColor: "#4CAF50", borderRadius: 20 },
-  addFriendBtnText: { color: "#fff", fontWeight: "700", fontSize: 13 },
-  friendStatusBadge: { marginTop: 8, marginBottom: 12, paddingHorizontal: 16, paddingVertical: 6, backgroundColor: "#e8f5e9", borderRadius: 20 },
-  friendStatusPending: { backgroundColor: isDark ? "#2a2a2a" : "#f5f5f5" },
-  friendStatusBadgeText: { color: "#4CAF50", fontWeight: "600", fontSize: 13 },
   rateNowBtn: { paddingHorizontal: 12, paddingVertical: 6, backgroundColor: c.primary, borderRadius: 8 },
   rateNowBtnText: { color: c.primaryText, fontSize: 12, fontWeight: "600" },
-  rateGameSubtitle: { fontSize: 12, color: c.textFaint, marginTop: 2 },
-  ratePlayerCard: { flexDirection: "column", backgroundColor: c.surface, borderRadius: 12, borderWidth: 1, borderColor: c.border, padding: 12, marginBottom: 10 },
-  ratePlayerLeft: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1 },
-  ratePlayerName: { fontSize: 15, fontWeight: "600", color: c.text },
-  rateStarsRow: { flexDirection: "row", gap: 4 },
-  rateReviewInput: { marginTop: 10, borderWidth: 1, borderColor: c.border, borderRadius: 8, padding: 10, fontSize: 13, backgroundColor: c.input, minHeight: 40, color: c.text },
-  rateFooter: { padding: 20, borderTopWidth: 1, borderTopColor: c.borderLight },
-  rateDoneBtn: { backgroundColor: c.primary, borderRadius: 12, padding: 16, alignItems: "center" },
-  rateDoneBtnDisabled: { backgroundColor: c.borderLight, opacity: 0.6 },
-  rateDoneBtnText: { color: c.primaryText, fontWeight: "700", fontSize: 15 },
-  rateHintText: { fontSize: 12, color: c.textMuted, textAlign: "center", marginBottom: 8 },
-  rateEmptyBox: { alignItems: "center", paddingVertical: 40 },
-  rateEmptyIcon: { fontSize: 40, marginBottom: 12 },
-  rateEmptyText: { fontSize: 16, fontWeight: "600", color: c.text, marginBottom: 6 },
-  rateEmptySub: { fontSize: 13, color: c.textFaint, textAlign: "center" },
   participantArrow: { fontSize: 20, color: c.placeholder },
   profileHeader: { alignItems: "center", marginBottom: 24 },
   profileAvatarRing: { borderRadius: 44, padding: 2, marginBottom: 12 },
@@ -1648,12 +1384,6 @@ function makeStyles(c: Colors, isDark = false) { return StyleSheet.create({
   reviewComment: { fontSize: 13, color: c.textSub, lineHeight: 20 },
   abandonedBadge: { backgroundColor: "#fff3e0", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, borderWidth: 1, borderColor: "#ff9800" },
   abandonedBadgeText: { fontSize: 10, color: "#e65100", fontWeight: "700" },
-  profileStatsRow: { flexDirection: "row", justifyContent: "center", alignItems: "center", backgroundColor: c.borderLight, borderRadius: 12, paddingVertical: 14, marginBottom: 20, marginTop: 4 },
-  profileStatItem: { flex: 1, alignItems: "center" },
-  profileStatNum: { fontSize: 20, fontWeight: "700", color: c.text },
-  profileStatNumAbandoned: { color: "#e65100" },
-  profileStatLabel: { fontSize: 11, color: c.textFaint, marginTop: 2 },
-  profileStatDivider: { width: 1, height: 32, backgroundColor: c.border },
   leaveOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.55)", justifyContent: "center", alignItems: "center", padding: 24 },
   leaveModal: { backgroundColor: c.surface, borderRadius: 18, padding: 24, width: "100%" },
   leaveModalTitle: { fontSize: 20, fontWeight: "700", color: c.text, marginBottom: 4 },
@@ -1711,8 +1441,6 @@ function makeStyles(c: Colors, isDark = false) { return StyleSheet.create({
   gameActionBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, borderRadius: 12, paddingVertical: 12 },
   gameActionIcon: { fontSize: 16 },
   gameActionText: { fontSize: 13, fontWeight: "600", color: c.text },
-  viewGameBtn: { marginTop: 8, alignSelf: "flex-start", backgroundColor: "#e3f2fd", borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6 },
-  viewGameBtnText: { fontSize: 13, fontWeight: "600", color: "#1565c0" },
   inviteFriendRow: { flexDirection: "row", alignItems: "center", backgroundColor: c.surface, borderRadius: 12, borderWidth: 1, borderColor: c.border, padding: 12, marginBottom: 10, gap: 12 },
   inviteFriendName: { flex: 1, fontSize: 15, fontWeight: "600", color: c.text },
   inviteBtn: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8, backgroundColor: c.primary },
