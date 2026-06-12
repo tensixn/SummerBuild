@@ -24,6 +24,32 @@ type Props = {
 
 const SPORT_OPTIONS = SPORTS.filter((s) => s !== "All") as Exclude<Sport, "All">[];
 
+const SPORT_PRESETS: Record<string, { label: string; players: number }[]> = {
+  Basketball: [
+    { label: "Standard 5v5", players: 10 },
+    { label: "Standard 3v3", players: 6 },
+    { label: "Standard 1v1", players: 2 },
+  ],
+  Badminton: [
+    { label: "Standard 2v2", players: 4 },
+    { label: "Standard 1v1", players: 2 },
+  ],
+  Football: [
+    { label: "Standard 11v11", players: 22 },
+    { label: "Standard 9v9", players: 18 },
+    { label: "Standard 5v5", players: 10 },
+  ],
+  Volleyball: [
+    { label: "Standard 5v5", players: 10 },
+    { label: "Standard 3v3", players: 6 },
+    { label: "Standard 1v1", players: 2 },
+  ],
+  Frisbee: [
+    { label: "Standard 7v7", players: 14 },
+    { label: "Standard 5v5", players: 10 },
+  ],
+};
+
 function roundTo15(date: Date): Date {
   const d = new Date(date);
   const m = d.getMinutes();
@@ -59,6 +85,12 @@ export default function CreateGameModal({ visible, onClose, onCreated }: Props) 
   const [description, setDescription] = useState("");
   const [repeatWeekly, setRepeatWeekly] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  function handleSportChange(newSport: string) {
+    setSport(newSport);
+    const presets = SPORT_PRESETS[newSport];
+    setMaxPlayers(presets ? String(presets[0].players) : "4");
+  }
 
   async function handleCreate() {
     const max = parseInt(maxPlayers);
@@ -215,7 +247,7 @@ export default function CreateGameModal({ visible, onClose, onCreated }: Props) 
         </View>
 
         <Text style={styles.label}>Sport</Text>
-        <OptionRow options={SPORT_OPTIONS} value={sport} onSelect={setSport} />
+        <OptionRow options={SPORT_OPTIONS} value={sport} onSelect={handleSportChange} />
 
         <Text style={styles.label}>Location</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.hScroll}>
@@ -333,6 +365,24 @@ export default function CreateGameModal({ visible, onClose, onCreated }: Props) 
         <OptionRow options={SKILL_LEVELS} value={skillLevel} onSelect={setSkillLevel} />
 
         <Text style={styles.label}>Max players</Text>
+        {SPORT_PRESETS[sport] && (
+          <View style={[styles.optionRow, { marginBottom: 8 }]}>
+            {SPORT_PRESETS[sport].map((preset) => {
+              const active = maxPlayers === String(preset.players);
+              return (
+                <Pressable
+                  key={preset.label}
+                  style={[styles.optionChip, active && styles.optionChipActive]}
+                  onPress={() => setMaxPlayers(String(preset.players))}
+                >
+                  <Text style={[styles.optionText, active && styles.optionTextActive]}>
+                    {preset.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        )}
         <TextInput
           style={styles.input}
           value={maxPlayers}
