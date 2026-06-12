@@ -9,21 +9,11 @@ import { supabase } from "../lib/supabase";
 import { SPORTS } from "../lib/types";
 import { useTheme, Colors } from "../lib/theme";
 import CloseButton from "../components/CloseButton";
+import AvatarWithFrame from "../components/AvatarWithFrame";
+import { AVATAR_BORDERS } from "../lib/borders";
 import { Switch } from "react-native";
 
 const SPORT_OPTIONS = SPORTS.filter((s) => s !== "All");
-
-const AVATAR_BORDERS = [
-  { id: "bronze",    name: "Bronze",    price: 50,  color: "#cd7f32" },
-  { id: "silver",    name: "Silver",    price: 100, color: "#a8a8a8" },
-  { id: "neon_blue", name: "Neon Blue", price: 150, color: "#00b4ff" },
-  { id: "neon_pink", name: "Neon Pink", price: 150, color: "#ff2d78" },
-  { id: "emerald",   name: "Emerald",   price: 175, color: "#2ecc71" },
-  { id: "gold",      name: "Gold",      price: 200, color: "#ffd700" },
-  { id: "ruby",      name: "Ruby",      price: 250, color: "#e74c3c" },
-  { id: "diamond",   name: "Diamond",   price: 500, color: "#a8e6f0" },
-  { id: "champion",  name: "Champion",  price: 750, color: "#ff6b35" },
-];
 
 function getMondayOfWeek(dateStr: string): string {
   const d = new Date(dateStr);
@@ -561,20 +551,12 @@ export default function ProfileScreen() {
 
         <View style={styles.header}>
           <Pressable onPress={editing ? pickImage : undefined} style={styles.avatarWrapper}>
-            {(() => {
-              const border = AVATAR_BORDERS.find(b => b.id === equippedBorderId);
-              return (
-                <View style={[styles.avatarRing, border ? { borderColor: border.color, borderWidth: 4 } : { borderWidth: 0 }]}>
-                  {avatarUri ? (
-                    <Image source={{ uri: avatarUri }} style={styles.avatarImage} />
-                  ) : (
-                    <View style={styles.avatar}>
-                      <Text style={styles.avatarText}>{(profile?.username ?? "?")[0].toUpperCase()}</Text>
-                    </View>
-                  )}
-                </View>
-              );
-            })()}
+            <AvatarWithFrame
+              avatarUrl={avatarUri}
+              initial={profile?.username}
+              equippedBorderId={equippedBorderId}
+              size="large"
+            />
             {editing && (
               <View style={styles.avatarOverlay}>
                 <Text style={styles.avatarOverlayText}>📷</Text>
@@ -767,9 +749,7 @@ export default function ProfileScreen() {
               const canAfford = coins >= border.price;
               return (
                 <View key={border.id} style={[styles.borderCard, equipped && styles.borderCardEquipped]}>
-                  <View style={[styles.borderPreviewOuter, { borderColor: border.color }]}>
-                    <View style={styles.borderPreviewInner} />
-                  </View>
+                  <Image source={{ uri: border.image }} style={styles.borderPreviewImage} resizeMode="contain" />
                   <Text style={styles.borderName}>{border.name}</Text>
                   <Text style={styles.borderPrice}>💰 {border.price}</Text>
                   {equipped ? (
@@ -897,20 +877,13 @@ export default function ProfileScreen() {
               ListEmptyComponent={<Text style={styles.emptyText}>No friends yet. Find players in the Search tab!</Text>}
               renderItem={({ item: f }) => (
                 <Pressable style={styles.friendCard} onPress={() => openFriendProfile(f)}>
-                  {(() => {
-                    const border = AVATAR_BORDERS.find((b) => b.id === f.equipped_border_id);
-                    return (
-                      <View style={[styles.friendAvatarRing, border ? { borderColor: border.color, borderWidth: 3 } : {}]}>
-                        {f.avatar_url ? (
-                          <Image source={{ uri: f.avatar_url }} style={styles.friendAvatar} />
-                        ) : (
-                          <View style={styles.friendAvatarPlaceholder}>
-                            <Text style={styles.friendAvatarText}>{f.username[0].toUpperCase()}</Text>
-                          </View>
-                        )}
-                      </View>
-                    );
-                  })()}
+                  <AvatarWithFrame
+                    avatarUrl={f.avatar_url}
+                    initial={f.username}
+                    equippedBorderId={f.equipped_border_id}
+                    size="small"
+                    style={{ marginRight: 12 }}
+                  />
                   <View style={styles.friendInfo}>
                     <Text style={styles.friendUsername}>{f.username}</Text>
                     {friendNextGames[f.id] ? (
@@ -944,20 +917,13 @@ export default function ProfileScreen() {
           ) : (
             <ScrollView contentContainerStyle={styles.modalList}>
               <View style={styles.friendProfileHeader}>
-                {(() => {
-                  const border = AVATAR_BORDERS.find((b) => b.id === selectedFriend?.equipped_border_id);
-                  return (
-                    <View style={[styles.friendProfileAvatarRing, border ? { borderColor: border.color, borderWidth: 4 } : {}]}>
-                      {selectedFriend?.avatar_url ? (
-                        <Image source={{ uri: selectedFriend.avatar_url }} style={styles.friendProfileAvatar} />
-                      ) : (
-                        <View style={styles.friendProfileAvatarPlaceholder}>
-                          <Text style={styles.friendProfileAvatarText}>{(selectedFriend?.username ?? "?")[0].toUpperCase()}</Text>
-                        </View>
-                      )}
-                    </View>
-                  );
-                })()}
+                <AvatarWithFrame
+                  avatarUrl={selectedFriend?.avatar_url}
+                  initial={selectedFriend?.username}
+                  equippedBorderId={selectedFriend?.equipped_border_id}
+                  size="large"
+                  style={{ marginBottom: 12 }}
+                />
                 <View style={styles.usernameRow}>
                   <Text style={styles.friendProfileUsername}>{selectedFriend?.username}</Text>
                   <Text style={styles.usernameRating}>
@@ -1220,8 +1186,7 @@ function makeStyles(c: Colors) { return StyleSheet.create({
   earnDivider: { height: 1, backgroundColor: c.borderLight, marginVertical: 10 },
   borderCard: { width: "47%", backgroundColor: c.surface, borderRadius: 14, borderWidth: 1, borderColor: c.border, padding: 14, alignItems: "center", gap: 8 },
   borderCardEquipped: { borderColor: "#1976d2", borderWidth: 2 },
-  borderPreviewOuter: { width: 64, height: 64, borderRadius: 32, borderWidth: 5, justifyContent: "center", alignItems: "center" },
-  borderPreviewInner: { width: 48, height: 48, borderRadius: 24, backgroundColor: "#e0e0e0" },
+  borderPreviewImage: { width: 90, height: 90 },
   borderName: { fontSize: 14, fontWeight: "700", color: c.text },
   borderPrice: { fontSize: 12, color: c.textFaint },
   buyBtn: { backgroundColor: "#1976d2", borderRadius: 8, paddingHorizontal: 16, paddingVertical: 7, width: "100%", alignItems: "center" },

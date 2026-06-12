@@ -7,6 +7,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "../lib/supabase";
 import { useTheme, Colors } from "../lib/theme";
 import CloseButton from "../components/CloseButton";
+import AvatarWithFrame from "../components/AvatarWithFrame";
 
 type Profile = {
   id: string;
@@ -16,17 +17,6 @@ type Profile = {
   equipped_border_id?: string | null;
 };
 
-const AVATAR_BORDERS = [
-  { id: "bronze",    color: "#cd7f32" },
-  { id: "silver",    color: "#a8a8a8" },
-  { id: "neon_blue", color: "#00b4ff" },
-  { id: "neon_pink", color: "#ff2d78" },
-  { id: "emerald",   color: "#2ecc71" },
-  { id: "gold",      color: "#ffd700" },
-  { id: "ruby",      color: "#e74c3c" },
-  { id: "diamond",   color: "#a8e6f0" },
-  { id: "champion",  color: "#ff6b35" },
-];
 
 type FriendStatus = "none" | "pending_sent" | "pending_received" | "accepted";
 type SearchResult = Profile & { friendStatus: FriendStatus };
@@ -265,20 +255,13 @@ export default function SearchScreen() {
           </Pressable>
 
           <View style={styles.profileHeader}>
-            {(() => {
-              const border = AVATAR_BORDERS.find((b) => b.id === selectedProfile.equipped_border_id);
-              return (
-                <View style={[styles.profileAvatarRing, border ? { borderColor: border.color, borderWidth: 4 } : {}]}>
-                  {selectedProfile.avatar_url ? (
-                    <Image source={{ uri: selectedProfile.avatar_url }} style={styles.profileAvatar} />
-                  ) : (
-                    <View style={styles.profileAvatarPlaceholder}>
-                      <Text style={styles.profileAvatarText}>{selectedProfile.username[0].toUpperCase()}</Text>
-                    </View>
-                  )}
-                </View>
-              );
-            })()}
+            <AvatarWithFrame
+              avatarUrl={selectedProfile.avatar_url}
+              initial={selectedProfile.username}
+              equippedBorderId={selectedProfile.equipped_border_id}
+              size="large"
+              style={{ marginBottom: 12 }}
+            />
             <Text style={styles.profileUsername}>{selectedProfile.username}</Text>
             <View style={styles.profileActionRow}>{renderActionBtn(selectedProfile)}</View>
           </View>
@@ -388,20 +371,13 @@ export default function SearchScreen() {
           renderItem={({ item }) => (
             <Pressable style={styles.card} onPress={() => openProfile(item)}>
               <View style={styles.cardLeft}>
-                {(() => {
-                  const border = AVATAR_BORDERS.find((b) => b.id === item.equipped_border_id);
-                  return (
-                    <View style={[styles.avatarRing, border ? { borderColor: border.color, borderWidth: 3 } : {}]}>
-                      {item.avatar_url ? (
-                        <Image source={{ uri: item.avatar_url }} style={styles.avatar} />
-                      ) : (
-                        <View style={styles.avatarPlaceholder}>
-                          <Text style={styles.avatarText}>{item.username[0].toUpperCase()}</Text>
-                        </View>
-                      )}
-                    </View>
-                  );
-                })()}
+                <AvatarWithFrame
+                  avatarUrl={item.avatar_url}
+                  initial={item.username}
+                  equippedBorderId={item.equipped_border_id}
+                  size="small"
+                  style={{ marginRight: 12 }}
+                />
                 <View style={styles.cardInfo}>
                   <Text style={styles.cardUsername}>{item.username}</Text>
                   {item.sports_interests.length > 0 ? (
