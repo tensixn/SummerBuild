@@ -9,6 +9,7 @@ import {
   StyleSheet,
   Alert,
   Platform,
+  Switch,
 } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { supabase } from "../lib/supabase";
@@ -56,6 +57,7 @@ export default function CreateGameModal({ visible, onClose, onCreated }: Props) 
   const [maxPlayers, setMaxPlayers] = useState("4");
   const [skillLevel, setSkillLevel] = useState("Chill");
   const [description, setDescription] = useState("");
+  const [repeatWeekly, setRepeatWeekly] = useState(false);
   const [loading, setLoading] = useState(false);
 
   async function handleCreate() {
@@ -95,6 +97,7 @@ export default function CreateGameModal({ visible, onClose, onCreated }: Props) 
         description: description.trim() || null,
         status: "open",
         created_by: user?.id ?? null,
+        repeat_weekly: repeatWeekly,
       })
       .select("id")
       .single();
@@ -114,6 +117,7 @@ export default function CreateGameModal({ visible, onClose, onCreated }: Props) 
 
     const fresh = defaultStart();
     setDescription("");
+    setRepeatWeekly(false);
     setStartTime(fresh);
     setEndTime(defaultEnd(fresh));
     setShowDatePicker(false);
@@ -348,6 +352,19 @@ export default function CreateGameModal({ visible, onClose, onCreated }: Props) 
           maxLength={120}
         />
 
+        <View style={styles.toggleRow}>
+          <View style={styles.toggleText}>
+            <Text style={styles.toggleLabel}>Repeat weekly</Text>
+            <Text style={styles.toggleSub}>Auto-creates next week's game on completion</Text>
+          </View>
+          <Switch
+            value={repeatWeekly}
+            onValueChange={setRepeatWeekly}
+            trackColor={{ false: colors.border, true: "#212121" }}
+            thumbColor="#fff"
+          />
+        </View>
+
         <Pressable
           style={[styles.createBtn, loading && styles.createBtnDisabled]}
           onPress={handleCreate}
@@ -511,6 +528,32 @@ function makeStyles(c: Colors) { return StyleSheet.create({
   inputMulti: {
     height: 80,
     textAlignVertical: "top",
+  },
+  toggleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: c.border,
+    borderRadius: 12,
+    backgroundColor: c.input,
+    marginTop: 20,
+  },
+  toggleText: {
+    flex: 1,
+    marginRight: 12,
+  },
+  toggleLabel: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: c.text,
+    marginBottom: 2,
+  },
+  toggleSub: {
+    fontSize: 12,
+    color: c.textFaint,
   },
   createBtn: {
     backgroundColor: c.primary,
