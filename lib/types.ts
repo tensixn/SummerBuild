@@ -11,6 +11,8 @@ export type Game = {
   status: string;
   created_by: string | null;
   creator_username: string | null;
+  repeat_weekly: boolean;
+  parent_game_id: string | null;
 };
 
 export type Sport =

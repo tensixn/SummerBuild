@@ -68,6 +68,56 @@ async function awardCoins(userId: string, amount: number, reason: string, gameId
   await supabase.from("profiles").update({ coins: (p?.coins ?? 0) + amount }).eq("id", userId);
 }
 
+async function scheduleRepeatGame(game: any) {
+  if (!game.repeat_weekly) return;
+  // Idempotency: bail if a child was already spawned for this game
+  const { count } = await supabase
+    .from("games")
+    .select("id", { count: "exact", head: true })
+    .eq("parent_game_id", game.id);
+  if (count && count > 0) return;
+
+  const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+  const nextStart = new Date(new Date(game.start_time).getTime() + WEEK_MS).toISOString();
+  const nextEnd = game.end_time
+    ? new Date(new Date(game.end_time).getTime() + WEEK_MS).toISOString()
+    : null;
+
+  const { data: newGame } = await supabase
+    .from("games")
+    .insert({
+      sport: game.sport,
+      location: game.location,
+      start_time: nextStart,
+      end_time: nextEnd,
+      max_players: game.max_players,
+      skill_level: game.skill_level,
+      description: game.description,
+      status: "open",
+      created_by: game.created_by,
+      repeat_weekly: true,
+      parent_game_id: game.id,
+    })
+    .select("id")
+    .single();
+
+  if (!newGame || !game.created_by) return;
+
+  // Copy the creator's participant record (carries their user_name/email) from the completed game
+  const { data: creatorPart } = await supabase
+    .from("game_participants")
+    .select("user_name")
+    .eq("game_id", game.id)
+    .eq("user_id", game.created_by)
+    .maybeSingle();
+
+  await supabase.from("game_participants").insert({
+    game_id: newGame.id,
+    user_id: game.created_by,
+    user_name: creatorPart?.user_name ?? null,
+  });
+}
+
 export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGameId?: string | null; onGameOpened?: () => void }) {
   const { colors, isDark } = useTheme();
   const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
@@ -139,7 +189,7 @@ export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGam
     const { data: newlyStarted } = await supabase.from("games").update({ status: "in_progress" }).eq("status", "open").not("end_time", "is", null).lt("start_time", now).gt("end_time", now).select("id");
     (newlyStarted ?? []).forEach((g: any) => notifyGameStatus(g.id, "started"));
     // In_progress games whose end_time has passed → completed; capture for coin awards
-    const { data: newlyClosed } = await supabase.from("games").update({ status: "completed" }).eq("status", "in_progress").lt("end_time", now).select("id, created_by");
+    const { data: newlyClosed } = await supabase.from("games").update({ status: "completed" }).eq("status", "in_progress").lt("end_time", now).select("id, created_by, repeat_weekly, sport, location, start_time, end_time, max_players, skill_level, description");
     if (newlyClosed && newlyClosed.length > 0) {
       (async () => {
         for (const game of newlyClosed as any[]) {
@@ -154,14 +204,22 @@ export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGam
             }
             if (game.created_by) await awardCoins(game.created_by, 5, "host_complete", game.id);
           }
+          await scheduleRepeatGame(game);
         }
       })();
     }
     // Open games with no end_time that have started → completed
-    const { data: newlyClosedNoEnd } = await supabase.from("games").update({ status: "completed" }).in("status", ["open", "full"]).is("end_time", null).lt("start_time", now).select("id");
-    (newlyClosedNoEnd ?? []).forEach((g: any) => notifyGameStatus(g.id, "ended"));
+    const { data: newlyClosedNoEnd } = await supabase.from("games").update({ status: "completed" }).in("status", ["open", "full"]).is("end_time", null).lt("start_time", now).select("id, created_by, repeat_weekly, sport, location, start_time, end_time, max_players, skill_level, description");
+    if (newlyClosedNoEnd && newlyClosedNoEnd.length > 0) {
+      (async () => {
+        for (const game of newlyClosedNoEnd as any[]) {
+          notifyGameStatus(game.id, "ended");
+          await scheduleRepeatGame(game);
+        }
+      })();
+    }
     // Open/full games that skipped in_progress entirely (app was closed between start and end) → completed
-    const { data: newlyClosedSkipped } = await supabase.from("games").update({ status: "completed" }).in("status", ["open", "full"]).not("end_time", "is", null).lt("end_time", now).select("id, created_by");
+    const { data: newlyClosedSkipped } = await supabase.from("games").update({ status: "completed" }).in("status", ["open", "full"]).not("end_time", "is", null).lt("end_time", now).select("id, created_by, repeat_weekly, sport, location, start_time, end_time, max_players, skill_level, description");
     if (newlyClosedSkipped && newlyClosedSkipped.length > 0) {
       (async () => {
         for (const game of newlyClosedSkipped as any[]) {
@@ -175,6 +233,7 @@ export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGam
             }
             if (game.created_by) await awardCoins(game.created_by, 5, "host_complete", game.id);
           }
+          await scheduleRepeatGame(game);
         }
       })();
     }
