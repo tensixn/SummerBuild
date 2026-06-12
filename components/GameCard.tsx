@@ -6,8 +6,12 @@ import { useTheme, Colors } from "../lib/theme";
 type Props = {
   game: Game;
   isJoined: boolean;
+  isWaitlisted?: boolean;
+  waitlistPosition?: number;
   onJoin: (game: Game) => void;
   onLeave: (game: Game) => void;
+  onJoinWaitlist?: (game: Game) => void;
+  onLeaveWaitlist?: (game: Game) => void;
   onCancel?: (game: Game) => void;
   onChat?: (game: Game) => void;
   hasUnread?: boolean;
@@ -52,7 +56,7 @@ const barStyles = StyleSheet.create({
   fill: { height: "100%", borderRadius: 2 },
 });
 
-export default function GameCard({ game, isJoined, onJoin, onLeave, onCancel, onChat, hasUnread }: Props) {
+export default function GameCard({ game, isJoined, isWaitlisted, waitlistPosition, onJoin, onLeave, onJoinWaitlist, onLeaveWaitlist, onCancel, onChat, hasUnread }: Props) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const isFull = game.current_players >= game.max_players;
@@ -101,6 +105,7 @@ export default function GameCard({ game, isJoined, onJoin, onLeave, onCancel, on
           <Text style={styles.slotText}>
             {game.current_players} / {game.max_players} players
           </Text>
+          {isFull && <View style={styles.fullPill}><Text style={styles.fullPillText}>Full</Text></View>}
           {onChat && (
             <Pressable style={styles.chatBtn} onPress={() => onChat(game)}>
               <Text style={styles.chatIcon}>💬</Text>
@@ -140,15 +145,22 @@ export default function GameCard({ game, isJoined, onJoin, onLeave, onCancel, on
                 <Text style={styles.leaveBtnText}>Leave</Text>
               </Pressable>
             </>
+          ) : isWaitlisted ? (
+            <>
+              <View style={styles.waitlistBadge}>
+                <Text style={styles.waitlistBadgeText}>#{waitlistPosition ?? "?"} in line</Text>
+              </View>
+              <Pressable style={styles.leaveWaitlistBtn} onPress={() => onLeaveWaitlist?.(game)}>
+                <Text style={styles.leaveWaitlistBtnText}>Leave</Text>
+              </Pressable>
+            </>
+          ) : isFull ? (
+            <Pressable style={styles.joinWaitlistBtn} onPress={() => onJoinWaitlist?.(game)}>
+              <Text style={styles.joinWaitlistBtnText}>Waitlist</Text>
+            </Pressable>
           ) : (
-            <Pressable
-              style={[styles.joinBtn, isFull && styles.joinBtnDisabled]}
-              onPress={() => !isFull && onJoin(game)}
-              disabled={isFull}
-            >
-              <Text style={[styles.joinBtnText, isFull && styles.joinBtnTextDisabled]}>
-                {isFull ? "Full" : "Join game"}
-              </Text>
+            <Pressable style={styles.joinBtn} onPress={() => onJoin(game)}>
+              <Text style={styles.joinBtnText}>Join game</Text>
             </Pressable>
           )}
         </View>
@@ -286,6 +298,17 @@ function makeStyles(c: Colors) {
       fontSize: 12,
       color: c.textFaint,
     },
+    fullPill: {
+      paddingHorizontal: 7,
+      paddingVertical: 2,
+      borderRadius: 6,
+      backgroundColor: "#fce4ec",
+    },
+    fullPillText: {
+      fontSize: 11,
+      fontWeight: "700",
+      color: "#c62828",
+    },
     chatBtn: {
       paddingHorizontal: 4,
       paddingVertical: 2,
@@ -321,6 +344,43 @@ function makeStyles(c: Colors) {
     },
     joinBtnTextDisabled: {
       color: c.textFaint,
+    },
+    joinWaitlistBtn: {
+      paddingHorizontal: 14,
+      paddingVertical: 7,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: "#ffb300",
+      backgroundColor: "#fff8e1",
+    },
+    joinWaitlistBtnText: {
+      fontSize: 13,
+      fontWeight: "600",
+      color: "#e65100",
+    },
+    waitlistBadge: {
+      paddingHorizontal: 10,
+      paddingVertical: 7,
+      borderRadius: 8,
+      backgroundColor: "#fff8e1",
+    },
+    waitlistBadgeText: {
+      fontSize: 12,
+      fontWeight: "600",
+      color: "#f57c00",
+    },
+    leaveWaitlistBtn: {
+      paddingHorizontal: 12,
+      paddingVertical: 7,
+      borderRadius: 8,
+      backgroundColor: "#fff3e0",
+      borderWidth: 1,
+      borderColor: "#ffe0b2",
+    },
+    leaveWaitlistBtnText: {
+      fontSize: 13,
+      fontWeight: "500",
+      color: "#e65100",
     },
     joinedBadge: {
       paddingHorizontal: 14,
