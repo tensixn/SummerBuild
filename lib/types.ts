@@ -44,3 +44,29 @@ export const NTU_LOCATIONS = [
 ];
 
 export const SKILL_LEVELS = ["Chill", "Intermediate", "Competitive"];
+
+export type Notification = {
+  id: string;
+  message: string;
+  is_read: boolean;
+  created_at: string;
+  type: string | null;
+  related_user_id: string | null;
+  related_game_id: string | null;
+};
+
+export type Profile = {
+  id: string;
+  username: string;
+  avatar_url: string | null;
+  sports_interests: string[];
+  recently_abandoned_at?: string | null;
+  equipped_border_id?: string | null;
+};
+
+export type Review = {
+  id: string;
+  reviewer_name: string;
+  comment: string;
+  created_at: string;
+};
