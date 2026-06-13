@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import {
   View, Text, TextInput, Pressable, FlatList, Modal,
-  StyleSheet, ActivityIndicator, Image, Alert, ScrollView,
+  StyleSheet, ActivityIndicator, Alert, ScrollView,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -18,9 +18,9 @@ type Profile = {
   equipped_border_id?: string | null;
 };
 
-
 type FriendStatus = "none" | "pending_sent" | "pending_received" | "accepted";
 type SearchResult = Profile & { friendStatus: FriendStatus };
+type Suggestion = SearchResult & { mutualCount: number };
 
 type Review = {
   id: string;
@@ -56,6 +56,8 @@ export default function SearchScreen() {
   const [createdGames, setCreatedGames] = useState<Game[]>([]);
   const [profileRatingAvg, setProfileRatingAvg] = useState<string | null>(null);
   const [activeModal, setActiveModal] = useState<ModalType>(null);
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
 
   useEffect(() => {
     supabase.auth.getUser().then(async ({ data: { user } }) => {
@@ -64,7 +66,92 @@ export default function SearchScreen() {
         if (p) setCurrentUsername(p.username);
       }
     });
+    fetchSuggestions();
   }, []);
+
+  async function fetchSuggestions() {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    setSuggestionsLoading(true);
+
+    // Fetch all my friend rows (any status) for status lookup later
+    const { data: allMyRows } = await supabase
+      .from("friends")
+      .select("*")
+      .or(`requester_id.eq.${user.id},receiver_id.eq.${user.id}`);
+
+    const myFriendIds = (allMyRows ?? [])
+      .filter((r: any) => r.status === "accepted")
+      .map((r: any) => (r.requester_id === user.id ? r.receiver_id : r.requester_id) as string);
+
+    if (myFriendIds.length === 0) {
+      setSuggestions([]);
+      setSuggestionsLoading(false);
+      return;
+    }
+
+    // Get all connections of my friends
+    const { data: fofRows } = await supabase
+      .from("friends")
+      .select("requester_id, receiver_id")
+      .eq("status", "accepted")
+      .or(`requester_id.in.(${myFriendIds.join(",")}),receiver_id.in.(${myFriendIds.join(",")})`);
+
+    // Count mutual connections per candidate
+    const mutualMap: Record<string, number> = {};
+    for (const row of fofRows ?? []) {
+      const a = row.requester_id as string;
+      const b = row.receiver_id as string;
+      const candidate = myFriendIds.includes(a) ? b : a;
+      if (candidate === user.id || myFriendIds.includes(candidate)) continue;
+      mutualMap[candidate] = (mutualMap[candidate] ?? 0) + 1;
+    }
+
+    const topIds = Object.keys(mutualMap)
+      .sort((a, b) => mutualMap[b] - mutualMap[a])
+      .slice(0, 10);
+
+    if (topIds.length === 0) {
+      setSuggestions([]);
+      setSuggestionsLoading(false);
+      return;
+    }
+
+    const { data: profiles } = await supabase
+      .from("profiles")
+      .select("id, username, avatar_url, sports_interests, equipped_border_id")
+      .in("id", topIds);
+
+    if (!profiles) {
+      setSuggestions([]);
+      setSuggestionsLoading(false);
+      return;
+    }
+
+    const mapped: Suggestion[] = profiles
+      .map((p: any) => {
+        const rel = (allMyRows ?? []).find(
+          (f: any) => f.requester_id === p.id || f.receiver_id === p.id
+        );
+        let friendStatus: FriendStatus = "none";
+        if (rel) {
+          if (rel.status === "accepted") friendStatus = "accepted";
+          else if (rel.status === "pending" && rel.requester_id === user.id) friendStatus = "pending_sent";
+          else if (rel.status === "pending" && rel.receiver_id === user.id) friendStatus = "pending_received";
+        }
+        return { ...p, friendStatus, mutualCount: mutualMap[p.id] ?? 0 };
+      })
+      .sort((a, b) => b.mutualCount - a.mutualCount);
+
+    setSuggestions(mapped);
+    setSuggestionsLoading(false);
+  }
+
+  function updateFriendStatus(id: string, status: FriendStatus) {
+    setResults((prev) => prev.map((r) => r.id === id ? { ...r, friendStatus: status } : r));
+    setSuggestions((prev) => prev.map((s) => s.id === id ? { ...s, friendStatus: status } : s));
+    if (selectedProfile?.id === id) setSelectedProfile((p) => p ? { ...p, friendStatus: status } : p);
+  }
 
   async function search(text: string) {
     setQuery(text);
@@ -75,11 +162,11 @@ export default function SearchScreen() {
     if (!user) return;
 
     const { data: profiles } = await supabase
-  .from("profiles")
-  .select("*")
-  .or(`username.ilike.%${text}%`)
-  .neq("id", user.id)
-  .limit(20);
+      .from("profiles")
+      .select("*")
+      .or(`username.ilike.%${text}%`)
+      .neq("id", user.id)
+      .limit(20);
 
     if (!profiles) { setLoading(false); return; }
 
@@ -120,7 +207,6 @@ export default function SearchScreen() {
       setProfileRatingAvg(avg);
     }
 
-    // Fetch joined games
     const { data: participations } = await supabase
       .from("game_participants").select("game_id").eq("user_name", item.username);
     if (participations && participations.length > 0) {
@@ -130,7 +216,6 @@ export default function SearchScreen() {
       if (games) setJoinedGames(games);
     }
 
-    // Fetch created games
     const { data: created } = await supabase
       .from("games_with_counts").select("*").eq("created_by", item.id).order("start_time", { ascending: false });
     if (created) setCreatedGames(created);
@@ -141,9 +226,7 @@ export default function SearchScreen() {
     if (!user) return;
     const { error } = await supabase.from("friends").insert({ requester_id: user.id, receiver_id: receiverId, status: "pending" });
     if (error) { Alert.alert("Error", error.message); return; }
-    const updated: FriendStatus = "pending_sent";
-    setResults((prev) => prev.map((r) => r.id === receiverId ? { ...r, friendStatus: updated } : r));
-    if (selectedProfile?.id === receiverId) setSelectedProfile((p) => p ? { ...p, friendStatus: updated } : p);
+    updateFriendStatus(receiverId, "pending_sent");
   }
 
   async function cancelRequest(receiverId: string) {
@@ -151,9 +234,7 @@ export default function SearchScreen() {
     if (!user) return;
     const { error } = await supabase.from("friends").delete().eq("requester_id", user.id).eq("receiver_id", receiverId).eq("status", "pending");
     if (error) { Alert.alert("Error", error.message); return; }
-    const updated: FriendStatus = "none";
-    setResults((prev) => prev.map((r) => r.id === receiverId ? { ...r, friendStatus: updated } : r));
-    if (selectedProfile?.id === receiverId) setSelectedProfile((p) => p ? { ...p, friendStatus: updated } : p);
+    updateFriendStatus(receiverId, "none");
   }
 
   function confirmRemoveFriend(friendId: string) {
@@ -171,9 +252,7 @@ export default function SearchScreen() {
       .or(`and(requester_id.eq.${user.id},receiver_id.eq.${friendId}),and(requester_id.eq.${friendId},receiver_id.eq.${user.id})`)
       .eq("status", "accepted");
     if (error) { Alert.alert("Error", error.message); return; }
-    const updated: FriendStatus = "none";
-    setResults((prev) => prev.map((r) => r.id === friendId ? { ...r, friendStatus: updated } : r));
-    if (selectedProfile?.id === friendId) setSelectedProfile((p) => p ? { ...p, friendStatus: updated } : p);
+    updateFriendStatus(friendId, "none");
   }
 
   async function acceptRequest(requesterId: string) {
@@ -181,9 +260,7 @@ export default function SearchScreen() {
     if (!user) return;
     const { error } = await supabase.from("friends").update({ status: "accepted" }).eq("requester_id", requesterId).eq("receiver_id", user.id);
     if (error) { Alert.alert("Error", error.message); return; }
-    const updated: FriendStatus = "accepted";
-    setResults((prev) => prev.map((r) => r.id === requesterId ? { ...r, friendStatus: updated } : r));
-    if (selectedProfile?.id === requesterId) setSelectedProfile((p) => p ? { ...p, friendStatus: updated } : p);
+    updateFriendStatus(requesterId, "accepted");
   }
 
   async function declineRequest(requesterId: string) {
@@ -191,9 +268,7 @@ export default function SearchScreen() {
     if (!user) return;
     const { error } = await supabase.from("friends").delete().eq("requester_id", requesterId).eq("receiver_id", user.id).eq("status", "pending");
     if (error) { Alert.alert("Error", error.message); return; }
-    const updated: FriendStatus = "none";
-    setResults((prev) => prev.map((r) => r.id === requesterId ? { ...r, friendStatus: updated } : r));
-    if (selectedProfile?.id === requesterId) setSelectedProfile((p) => p ? { ...p, friendStatus: updated } : p);
+    updateFriendStatus(requesterId, "none");
   }
 
   async function submitReview() {
@@ -254,6 +329,24 @@ export default function SearchScreen() {
     }
   }
 
+  function renderSuggestionActionBtn(item: Suggestion) {
+    switch (item.friendStatus) {
+      case "accepted":
+        return <Pressable style={styles.friendBadge} onPress={() => confirmRemoveFriend(item.id)}><Text style={styles.friendBadgeText}>Friends ✓</Text></Pressable>;
+      case "pending_sent":
+        return <Pressable style={styles.pendingBadge} onPress={() => cancelRequest(item.id)}><Text style={styles.pendingBadgeText}>Requested</Text></Pressable>;
+      case "pending_received":
+        return (
+          <View style={{ gap: 4 }}>
+            <Pressable style={styles.acceptBtn} onPress={() => acceptRequest(item.id)}><Text style={styles.acceptBtnText}>Accept</Text></Pressable>
+            <Pressable style={styles.declineBtn} onPress={() => declineRequest(item.id)}><Text style={styles.declineBtnText}>Decline</Text></Pressable>
+          </View>
+        );
+      default:
+        return <Pressable style={styles.addBtn} onPress={() => sendRequest(item.id)}><Text style={styles.addBtnText}>Add</Text></Pressable>;
+    }
+  }
+
   // Profile view
   if (selectedProfile) {
     return (
@@ -276,7 +369,6 @@ export default function SearchScreen() {
             <View style={styles.profileActionRow}>{renderActionBtn(selectedProfile)}</View>
           </View>
 
-          {/* Clickable Stats */}
           <View style={styles.statsRow}>
             <Pressable style={styles.statBox} onPress={() => setActiveModal("joined")}>
               <Text style={styles.statNum}>{joinedGames.length}</Text>
@@ -294,7 +386,6 @@ export default function SearchScreen() {
             </View>
           </View>
 
-          {/* Sports Interests */}
           <Text style={styles.sectionLabel}>Sports Interests</Text>
           <View style={styles.sportsRow}>
             {selectedProfile.sports_interests.length > 0 ? (
@@ -308,7 +399,6 @@ export default function SearchScreen() {
             )}
           </View>
 
-          {/* Leave a Review */}
           <Text style={styles.sectionLabel}>Leave a Review</Text>
           <View style={styles.reviewInputRow}>
             <TextInput style={styles.reviewInput} placeholder="Write a comment..." value={reviewText} onChangeText={setReviewText} multiline />
@@ -317,7 +407,6 @@ export default function SearchScreen() {
             </Pressable>
           </View>
 
-          {/* Reviews */}
           <Text style={styles.sectionLabel}>Reviews ({profileReviews.length})</Text>
           {profileReviews.length === 0 ? (
             <Text style={styles.emptyText}>No reviews yet.</Text>
@@ -334,7 +423,6 @@ export default function SearchScreen() {
           )}
         </ScrollView>
 
-        {/* Games Modal */}
         <Modal visible={activeModal !== null} animationType="slide" presentationStyle="pageSheet">
           <SafeAreaView style={styles.modalSafe}>
             <View style={styles.modalHeader}>
@@ -370,6 +458,38 @@ export default function SearchScreen() {
             </Pressable>
           )}
         </View>
+
+        {/* People You May Know — shown when not searching */}
+        {query.length === 0 && (
+          <>
+            {suggestionsLoading && <ActivityIndicator style={{ marginTop: 16 }} />}
+            {!suggestionsLoading && suggestions.length > 0 && (
+              <View style={styles.suggestionsSection}>
+                <Text style={styles.suggestionsLabel}>People You May Know</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.suggestionsList}>
+                  {suggestions.map((item) => (
+                    <Pressable key={item.id} style={styles.suggestionCard} onPress={() => openProfile(item)}>
+                      <AvatarWithFrame
+                        avatarUrl={item.avatar_url}
+                        initial={item.username}
+                        equippedBorderId={item.equipped_border_id}
+                        size="small"
+                        style={{ alignSelf: "center", marginBottom: 8 }}
+                      />
+                      <Text style={styles.suggestionUsername} numberOfLines={1}>{item.username}</Text>
+                      <Text style={styles.suggestionMutual}>
+                        {item.mutualCount} mutual {item.mutualCount === 1 ? "friend" : "friends"}
+                      </Text>
+                      <View style={{ marginTop: 8 }}>
+                        {renderSuggestionActionBtn(item)}
+                      </View>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+          </>
+        )}
 
         {loading && <ActivityIndicator style={{ marginTop: 24 }} />}
         {!loading && query.length >= 2 && results.length === 0 && <Text style={styles.emptyText}>No players found for "{query}"</Text>}
@@ -442,6 +562,14 @@ function makeStyles(c: Colors) { return StyleSheet.create({
   declineBtnText: { color: c.textMuted, fontSize: 12, fontWeight: "600" },
   friendBadge: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 8, backgroundColor: "#e8f5e9" },
   friendBadgeText: { color: "#2e7d32", fontSize: 12, fontWeight: "600" },
+  // Suggestions
+  suggestionsSection: { marginBottom: 8 },
+  suggestionsLabel: { fontSize: 11, fontWeight: "600", letterSpacing: 0.6, textTransform: "uppercase", color: c.placeholder, marginBottom: 12 },
+  suggestionsList: { gap: 10, paddingBottom: 4 },
+  suggestionCard: { width: 140, backgroundColor: c.surface, borderRadius: 14, borderWidth: 1, borderColor: c.border, padding: 14, alignItems: "center" },
+  suggestionUsername: { fontSize: 13, fontWeight: "600", color: c.text, marginBottom: 4, textAlign: "center" },
+  suggestionMutual: { fontSize: 11, color: c.textFaint, textAlign: "center" },
+  // Profile view
   profileHeader: { alignItems: "center", marginBottom: 24, paddingTop: 8 },
   profileAvatarRing: { borderRadius: 44, padding: 2, marginBottom: 12 },
   profileAvatar: { width: 80, height: 80, borderRadius: 40 },
