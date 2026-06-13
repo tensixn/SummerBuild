@@ -10,7 +10,7 @@ export const AVATAR_BORDERS: AvatarBorder[] = [
     id: "silver",
     name: "Silver",
     price: 100,
-    image: "https://static.vecteezy.com/system/resources/thumbnails/069/101/811/small/silver-circular-frame-with-metallic-gradient-luxury-silver-ring-border-on-transparent-background-elegant-design-element-for-decoration-and-graphic-design-projects-png.png",
+    image: "https://static.vecteezy.com/system/resources/previews/060/511/985/non_2x/elegant-round-silver-frame-with-intricate-ornate-detailing-on-transparent-background-free-png.png",
   },
   {
     id: "ruby",

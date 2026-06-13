@@ -242,10 +242,12 @@ export default function LeaderboardScreen() {
           ) : (
             entries.map((entry, index) => {
               const isMe = entry.userId === currentUserId;
+              const TOP3_BORDER = ["#F59E0B", "#9CA3AF", "#CD7C2F"];
+              const topBorder = index < 3 ? { borderLeftWidth: 4, borderLeftColor: TOP3_BORDER[index] } : undefined;
               return (
                 <View
                   key={entry.userId}
-                  style={[styles.row, isMe && styles.rowMe]}
+                  style={[styles.row, isMe && styles.rowMe, topBorder]}
                   onLayout={isMe ? (e) => { myRowY.current = e.nativeEvent.layout.y; } : undefined}
                 >
                   <View style={styles.rankBox}>
@@ -328,7 +330,7 @@ function makeStyles(c: Colors) {
     tabTextActive: {
       color: c.text,
     },
-    container: { padding: 20, paddingBottom: 100 },
+    container: { padding: 20, paddingBottom: 64 },
     title: { fontSize: 26, fontWeight: "700", color: c.text, marginBottom: 4 },
     subtitle: { fontSize: 13, color: c.textFaint, marginBottom: 24 },
     empty: {
@@ -350,7 +352,7 @@ function makeStyles(c: Colors) {
       gap: 12,
     },
     rowMe: {
-      borderColor: "#1976d2",
+      borderColor: "#22c55e",
       borderWidth: 1.5,
     },
     rankBox: { width: 34, alignItems: "center" },
@@ -369,30 +371,30 @@ function makeStyles(c: Colors) {
     avatarText: { fontSize: 18, fontWeight: "700", color: c.textMuted },
     info: { flex: 1 },
     username: { fontSize: 15, fontWeight: "600", color: c.text },
-    usernameMe: { color: "#1565c0" },
+    usernameMe: { color: "#22c55e" },
     currentStreak: { fontSize: 12, color: c.textFaint, marginTop: 2 },
     streakBox: { alignItems: "center", minWidth: 52 },
-    streakNum: { fontSize: 24, fontWeight: "700", color: "#1976d2" },
-    streakNumMe: { color: "#0d47a1" },
+    streakNum: { fontSize: 24, fontWeight: "700", color: "#22c55e" },
+    streakNumMe: { color: "#16a34a" },
     streakLabel: { fontSize: 11, color: c.textFaint, marginTop: 1 },
     findMeBtn: {
       position: "absolute",
-      bottom: 20,
+      bottom: 12,
       alignSelf: "center",
-      backgroundColor: "#1976d2",
+      backgroundColor: "#22c55e",
       paddingHorizontal: 20,
-      paddingVertical: 12,
-      borderRadius: 24,
+      paddingVertical: 10,
+      borderRadius: 22,
       shadowColor: "#000",
       shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.2,
-      shadowRadius: 6,
-      elevation: 5,
+      shadowOpacity: 0.15,
+      shadowRadius: 4,
+      elevation: 4,
     },
     findMeBtnText: {
       color: "#fff",
-      fontSize: 14,
-      fontWeight: "700",
+      fontSize: 13,
+      fontWeight: "600",
     },
   });
 }

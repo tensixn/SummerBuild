@@ -20,7 +20,7 @@ type Props = {
 const SPORT_COLORS: Record<string, { bg: string; text: string }> = {
   Badminton:  { bg: "#e8f5e9", text: "#2e7d32" },
   Basketball: { bg: "#fff3e0", text: "#e65100" },
-  Football:   { bg: "#e3f2fd", text: "#1565c0" },
+  Football:   { bg: "#f0fdf4", text: "#16a34a" },
   Volleyball: { bg: "#fce4ec", text: "#880e4f" },
   Frisbee:    { bg: "#f3e5f5", text: "#6a1b9a" },
 };
@@ -183,14 +183,14 @@ function makeStyles(c: Colors) {
       borderColor: "#4caf50",
     },
     cardInProgress: {
-      borderColor: "#1976d2",
+      borderColor: "#22c55e",
       borderWidth: 1.5,
     },
     inProgressPill: {
       flexDirection: "row",
       alignItems: "center",
       gap: 4,
-      backgroundColor: "#e3f2fd",
+      backgroundColor: "#f0fdf4",
       paddingHorizontal: 8,
       paddingVertical: 3,
       borderRadius: 20,
@@ -199,18 +199,18 @@ function makeStyles(c: Colors) {
       width: 6,
       height: 6,
       borderRadius: 3,
-      backgroundColor: "#1976d2",
+      backgroundColor: "#22c55e",
     },
     inProgressPillText: {
       fontSize: 11,
       fontWeight: "600",
-      color: "#1976d2",
+      color: "#22c55e",
     },
     gameInProgressBtn: {
       paddingHorizontal: 16,
       paddingVertical: 7,
       borderRadius: 8,
-      backgroundColor: "#1976d2",
+      backgroundColor: "#22c55e",
     },
     gameInProgressBtnText: {
       fontSize: 13,

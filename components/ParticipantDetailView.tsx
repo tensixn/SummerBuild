@@ -106,8 +106,8 @@ export default function ParticipantDetailView({ profile, reviews, stats, friendS
 function makeStyles(c: Colors, isDark: boolean) {
   return StyleSheet.create({
     profileHeader: { alignItems: "center", marginBottom: 24 },
-    username: { fontSize: 20, fontWeight: "700", color: c.text },
-    rating: { fontSize: 14, fontWeight: "600", color: "#f59e0b", marginTop: 4, marginBottom: 8 },
+    username: { fontSize: 20, fontWeight: "700", color: c.text, marginBottom: 4 },
+    rating: { fontSize: 14, fontWeight: "600", color: "#f59e0b", marginBottom: 10 },
     friendBadge: { marginTop: 8, marginBottom: 12, paddingHorizontal: 16, paddingVertical: 6, backgroundColor: "#e8f5e9", borderRadius: 20 },
     friendBadgePending: { backgroundColor: isDark ? "#2a2a2a" : "#f5f5f5" },
     friendBadgeText: { color: "#4CAF50", fontWeight: "600", fontSize: 13 },

@@ -4,6 +4,7 @@ import {
   StyleSheet, ActivityIndicator, Image, Alert, ScrollView,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../lib/supabase";
 import { useTheme, Colors } from "../lib/theme";
 import CloseButton from "../components/CloseButton";
@@ -53,6 +54,7 @@ export default function SearchScreen() {
   const [submittingReview, setSubmittingReview] = useState(false);
   const [joinedGames, setJoinedGames] = useState<Game[]>([]);
   const [createdGames, setCreatedGames] = useState<Game[]>([]);
+  const [profileRatingAvg, setProfileRatingAvg] = useState<string | null>(null);
   const [activeModal, setActiveModal] = useState<ModalType>(null);
 
   useEffect(() => {
@@ -106,10 +108,17 @@ export default function SearchScreen() {
     setProfileReviews([]);
     setJoinedGames([]);
     setCreatedGames([]);
+    setProfileRatingAvg(null);
 
-    const { data: reviews } = await supabase
-      .from("reviews").select("*").eq("profile_id", item.id).order("created_at", { ascending: false });
-    if (reviews) setProfileReviews(reviews);
+    const [reviewsRes, ratingsRes] = await Promise.all([
+      supabase.from("reviews").select("*").eq("profile_id", item.id).order("created_at", { ascending: false }),
+      supabase.from("ratings").select("stars").eq("rated_id", item.id),
+    ]);
+    if (reviewsRes.data) setProfileReviews(reviewsRes.data);
+    if (ratingsRes.data && ratingsRes.data.length > 0) {
+      const avg = (ratingsRes.data.reduce((s: number, r: any) => s + r.stars, 0) / ratingsRes.data.length).toFixed(1);
+      setProfileRatingAvg(avg);
+    }
 
     // Fetch joined games
     const { data: participations } = await supabase
@@ -263,6 +272,7 @@ export default function SearchScreen() {
               style={{ marginBottom: 12 }}
             />
             <Text style={styles.profileUsername}>{selectedProfile.username}</Text>
+            <Text style={styles.profileRating}>★ {profileRatingAvg ? `${profileRatingAvg}/4` : "—/4"}</Text>
             <View style={styles.profileActionRow}>{renderActionBtn(selectedProfile)}</View>
           </View>
 
@@ -352,7 +362,7 @@ export default function SearchScreen() {
       <View style={styles.container}>
         <Text style={styles.title}>Find Players</Text>
         <View style={styles.searchBar}>
-          <Text style={styles.searchIcon}>🔍</Text>
+          <Ionicons name="search-outline" size={18} color="#9CA3AF" style={styles.searchIcon} />
           <TextInput style={styles.searchInput} placeholder="Search by username..." value={query} onChangeText={search} autoCapitalize="none" autoCorrect={false} />
           {query.length > 0 && (
             <Pressable onPress={() => { setQuery(""); setResults([]); }}>
@@ -404,9 +414,9 @@ function makeStyles(c: Colors) { return StyleSheet.create({
   scrollContainer: { padding: 20, paddingBottom: 48 },
   title: { fontSize: 22, fontWeight: "700", color: c.text, marginBottom: 16 },
   backBtn: { marginBottom: 16 },
-  backBtnText: { fontSize: 15, color: "#1565c0", fontWeight: "500" },
+  backBtnText: { fontSize: 15, color: "#22c55e", fontWeight: "500" },
   searchBar: { flexDirection: "row", alignItems: "center", backgroundColor: c.surface, borderRadius: 12, borderWidth: 1, borderColor: c.border, paddingHorizontal: 12, marginBottom: 16 },
-  searchIcon: { fontSize: 16, marginRight: 8 },
+  searchIcon: { marginRight: 8 },
   searchInput: { flex: 1, fontSize: 15, paddingVertical: 12, color: c.text },
   clearBtn: { fontSize: 14, color: c.textFaint, paddingLeft: 8 },
   emptyText: { fontSize: 13, color: c.textFaint, textAlign: "center", marginTop: 32 },
@@ -437,7 +447,8 @@ function makeStyles(c: Colors) { return StyleSheet.create({
   profileAvatar: { width: 80, height: 80, borderRadius: 40 },
   profileAvatarPlaceholder: { width: 80, height: 80, borderRadius: 40, backgroundColor: "#212121", alignItems: "center", justifyContent: "center" },
   profileAvatarText: { fontSize: 32, fontWeight: "700", color: "#fff" },
-  profileUsername: { fontSize: 20, fontWeight: "700", color: c.text, marginBottom: 12 },
+  profileUsername: { fontSize: 20, fontWeight: "700", color: c.text, marginBottom: 4 },
+  profileRating: { fontSize: 14, fontWeight: "600", color: "#f59e0b", marginBottom: 12 },
   profileActionRow: { flexDirection: "row" },
   statsRow: { flexDirection: "row", backgroundColor: c.surface, borderRadius: 14, borderWidth: 1, borderColor: c.border, marginBottom: 24, paddingVertical: 16 },
   statBox: { flex: 1, alignItems: "center" },
