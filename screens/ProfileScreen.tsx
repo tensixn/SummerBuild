@@ -203,9 +203,9 @@ export default function ProfileScreen() {
     const { data: allParts } = await supabase.from("game_participants").select("game_id").eq("user_id", user.id);
     if (allParts && allParts.length > 0) {
       const allIds = allParts.map((p: any) => p.game_id);
-      const { data: closedGames } = await supabase.from("games").select("end_time").in("id", allIds).eq("status", "completed");
+      const { data: closedGames } = await supabase.from("games").select("end_time, start_time").in("id", allIds).eq("status", "completed");
       if (closedGames) {
-        const dates = closedGames.map((g: any) => g.end_time).filter(Boolean) as string[];
+        const dates = closedGames.map((g: any) => g.end_time ?? g.start_time).filter(Boolean) as string[];
         const { current, longest } = computeStreak(dates);
         setCurrentStreak(current);
         setLongestStreak(longest);
@@ -287,7 +287,6 @@ export default function ProfileScreen() {
       if (user) {
         const mine = ratingsRes.data.find((r: any) => r.rater_id === user.id) ?? null;
         setMyRatingForFriend(mine);
-        if (mine) { setRatingStars(mine.stars); setRatingComment(mine.comment ?? ""); }
       }
     }
 
@@ -311,7 +310,7 @@ export default function ProfileScreen() {
         const myIds = myParts.map((p: any) => p.game_id as string);
         const sharedIds = participantGameIds.filter(id => myIds.includes(id));
         if (sharedIds.length > 0) {
-          const { data: completed } = await supabase.from("games").select("id").in("id", sharedIds).lte("start_time", new Date().toISOString()).limit(1);
+          const { data: completed } = await supabase.from("games").select("id").in("id", sharedIds).eq("status", "completed").limit(1);
           setCanRateFriend((completed?.length ?? 0) > 0);
         }
       }
@@ -319,9 +318,9 @@ export default function ProfileScreen() {
     const { data: friendParts } = await supabase.from("game_participants").select("game_id").eq("user_id", friend.id);
     if (friendParts && friendParts.length > 0) {
       const friendIds = friendParts.map((p: any) => p.game_id);
-      const { data: friendClosed } = await supabase.from("games").select("end_time").in("id", friendIds).eq("status", "completed");
+      const { data: friendClosed } = await supabase.from("games").select("end_time, start_time").in("id", friendIds).eq("status", "completed");
       if (friendClosed) {
-        const dates = friendClosed.map((g: any) => g.end_time).filter(Boolean) as string[];
+        const dates = friendClosed.map((g: any) => g.end_time ?? g.start_time).filter(Boolean) as string[];
         const { current, longest } = computeStreak(dates);
         setFriendCurrentStreak(current);
         setFriendLongestStreak(longest);
@@ -353,14 +352,12 @@ export default function ProfileScreen() {
   }
 
   async function submitRating() {
-    if (ratingStars === 0 || !selectedFriend) return;
+    if (ratingStars === 0 || !selectedFriend || myRatingForFriend) return;
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
     setSubmittingRating(true);
     const payload = { rater_id: user.id, rated_id: selectedFriend.id, stars: ratingStars, comment: ratingComment.trim() || null };
-    const { data, error } = myRatingForFriend
-      ? await supabase.from("ratings").update({ stars: ratingStars, comment: ratingComment.trim() || null }).eq("id", myRatingForFriend.id).select().single()
-      : await supabase.from("ratings").insert(payload).select().single();
+    const { data, error } = await supabase.from("ratings").insert(payload).select().single();
     setSubmittingRating(false);
     if (error) { Alert.alert("Error", error.message); return; }
     if (data) setMyRatingForFriend(data);
@@ -1000,22 +997,32 @@ export default function ProfileScreen() {
                 ))
               )}
 
-              {canRateFriend && (
+              {(canRateFriend || myRatingForFriend) && (
                 <>
-                  <Text style={styles.sectionLabel}>{myRatingForFriend ? "Your Rating" : "To Be Rated"}</Text>
-                  <View style={styles.starSelector}>
-                    {[1, 2, 3, 4].map((s) => (
-                      <Pressable key={s} onPress={() => setRatingStars(s)}>
-                        <Text style={[styles.starBtn, { color: s <= ratingStars ? "#f59e0b" : "#e0e0e0" }]}>★</Text>
-                      </Pressable>
-                    ))}
-                  </View>
-                  <View style={styles.reviewInputRow}>
-                    <TextInput style={styles.reviewInput} placeholder="Write a review (optional)..." value={ratingComment} onChangeText={setRatingComment} multiline />
-                    <Pressable style={[styles.reviewSubmitBtn, ratingStars === 0 && styles.reviewSubmitBtnDisabled]} onPress={submitRating} disabled={submittingRating || ratingStars === 0}>
-                      <Text style={styles.reviewSubmitText}>{myRatingForFriend ? "Update" : "Submit"}</Text>
-                    </Pressable>
-                  </View>
+                  <Text style={styles.sectionLabel}>{myRatingForFriend ? "Your Rating" : "Rate Player"}</Text>
+                  {myRatingForFriend ? (
+                    <View style={styles.starSelector}>
+                      {[1, 2, 3, 4].map((s) => (
+                        <Text key={s} style={[styles.starBtn, { color: s <= myRatingForFriend.stars ? "#f59e0b" : "#e0e0e0" }]}>★</Text>
+                      ))}
+                    </View>
+                  ) : (
+                    <>
+                      <View style={styles.starSelector}>
+                        {[1, 2, 3, 4].map((s) => (
+                          <Pressable key={s} onPress={() => setRatingStars(s)}>
+                            <Text style={[styles.starBtn, { color: s <= ratingStars ? "#f59e0b" : "#e0e0e0" }]}>★</Text>
+                          </Pressable>
+                        ))}
+                      </View>
+                      <View style={styles.reviewInputRow}>
+                        <TextInput style={styles.reviewInput} placeholder="Write a review (optional)..." value={ratingComment} onChangeText={setRatingComment} multiline />
+                        <Pressable style={[styles.reviewSubmitBtn, ratingStars === 0 && styles.reviewSubmitBtnDisabled]} onPress={submitRating} disabled={submittingRating || ratingStars === 0}>
+                          <Text style={styles.reviewSubmitText}>Submit</Text>
+                        </Pressable>
+                      </View>
+                    </>
+                  )}
                 </>
               )}
 
