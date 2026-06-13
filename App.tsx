@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { View, Text, Pressable, StyleSheet, Linking } from "react-native";
+import { View, Pressable, StyleSheet, Linking } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -56,8 +57,18 @@ function AppContent() {
   }
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      setLoggedIn(!!data.session);
+    supabase.auth.getSession().then(async ({ data }) => {
+      if (data.session) {
+        const remember = await AsyncStorage.getItem("@remember_me");
+        if (remember === "0") {
+          await supabase.auth.signOut();
+          setLoggedIn(false);
+        } else {
+          setLoggedIn(true);
+        }
+      } else {
+        setLoggedIn(false);
+      }
       setChecking(false);
     });
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -107,24 +118,19 @@ function AppContent() {
         </View>
         <View style={[styles.nav, { paddingBottom: insets.bottom || 8, backgroundColor: colors.surface, borderTopColor: colors.borderLight }]}>
           <Pressable style={styles.navItem} onPress={() => setTab("games")}>
-            <Text style={[styles.navIcon, tab === "games" && styles.navIconActive]}>⚡️</Text>
-            <Text style={[styles.navLabel, tab === "games" && { color: colors.text }]}>Games</Text>
+            <Ionicons name={tab === "games" ? "flash" : "flash-outline"} size={26} color={tab === "games" ? "#22c55e" : "#9e9e9e"} />
           </Pressable>
           <Pressable style={styles.navItem} onPress={() => setTab("map")}>
-            <Text style={[styles.navIcon, tab === "map" && styles.navIconActive]}>🗺</Text>
-            <Text style={[styles.navLabel, tab === "map" && { color: colors.text }]}>Map</Text>
+            <Ionicons name={tab === "map" ? "map" : "map-outline"} size={26} color={tab === "map" ? "#22c55e" : "#9e9e9e"} />
           </Pressable>
           <Pressable style={styles.navItem} onPress={() => setTab("search")}>
-            <Text style={[styles.navIcon, tab === "search" && styles.navIconActive]}>🔍</Text>
-            <Text style={[styles.navLabel, tab === "search" && { color: colors.text }]}>Search</Text>
+            <Ionicons name={tab === "search" ? "search" : "search-outline"} size={26} color={tab === "search" ? "#22c55e" : "#9e9e9e"} />
           </Pressable>
           <Pressable style={styles.navItem} onPress={() => setTab("leaderboard")}>
-            <Text style={[styles.navIcon, tab === "leaderboard" && styles.navIconActive]}>🏆</Text>
-            <Text style={[styles.navLabel, tab === "leaderboard" && { color: colors.text }]}>Leaderboard</Text>
+            <Ionicons name={tab === "leaderboard" ? "trophy" : "trophy-outline"} size={26} color={tab === "leaderboard" ? "#22c55e" : "#9e9e9e"} />
           </Pressable>
           <Pressable style={styles.navItem} onPress={() => setTab("profile")}>
-            <Text style={[styles.navIcon, tab === "profile" && styles.navIconActive]}>👤</Text>
-            <Text style={[styles.navLabel, tab === "profile" && { color: colors.text }]}>Profile</Text>
+            <Ionicons name={tab === "profile" ? "person" : "person-outline"} size={26} color={tab === "profile" ? "#22c55e" : "#9e9e9e"} />
           </Pressable>
         </View>
       </View>
@@ -136,12 +142,14 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   content: { flex: 1 },
   nav: {
-    borderTopWidth: 1,
+    borderTopWidth: StyleSheet.hairlineWidth,
     flexDirection: "row",
-    paddingVertical: 8,
+    paddingTop: 10,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    elevation: 8,
   },
-  navItem: { flex: 1, alignItems: "center", gap: 2 },
-  navIcon: { fontSize: 22, opacity: 0.4 },
-  navIconActive: { opacity: 1 },
-  navLabel: { fontSize: 10, fontWeight: "500", color: "#bdbdbd", letterSpacing: 0.3 },
+  navItem: { flex: 1, alignItems: "center", paddingBottom: 4 },
 });

@@ -4,6 +4,7 @@ import {
   StyleSheet, Alert, ActivityIndicator, Image, FlatList, RefreshControl, Linking,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { supabase } from "../lib/supabase";
 import { SPORTS } from "../lib/types";
@@ -694,13 +695,23 @@ export default function ProfileScreen() {
           )
         )}
 
-        <Pressable style={styles.signOutBtn} onPress={() => setShowShop(true)}>
-          <Text style={styles.shopBtnText}>🛍 Shop</Text>
-        </Pressable>
-
-        <Pressable style={styles.signOutBtn} onPress={() => setShowSettings(true)}>
-          <Text style={styles.settingsChangePasswordText}>Settings</Text>
-        </Pressable>
+        <View style={styles.actionGroup}>
+          <Pressable style={styles.actionRow} onPress={() => setShowShop(true)}>
+            <View style={styles.actionRowLeft}>
+              <Ionicons name="bag-outline" size={20} color="#F59E0B" />
+              <Text style={[styles.actionRowText, styles.actionRowTextAmber]}>Shop</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={styles.actionRowChevron.color as string} />
+          </Pressable>
+          <View style={styles.actionRowDivider} />
+          <Pressable style={styles.actionRow} onPress={() => setShowSettings(true)}>
+            <View style={styles.actionRowLeft}>
+              <Ionicons name="settings-outline" size={20} color={styles.actionRowText.color as string} />
+              <Text style={styles.actionRowText}>Settings</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={styles.actionRowChevron.color as string} />
+          </Pressable>
+        </View>
 
         <Pressable style={styles.signOutBtn} onPress={() => Alert.alert("Sign out?", "Are you sure you want to sign out?", [{ text: "Cancel", style: "cancel" }, { text: "Sign out", style: "destructive", onPress: () => supabase.auth.signOut() }])}>
           <Text style={styles.signOutText}>Sign out</Text>
@@ -924,12 +935,10 @@ export default function ProfileScreen() {
                   size="large"
                   style={{ marginBottom: 12 }}
                 />
-                <View style={styles.usernameRow}>
-                  <Text style={styles.friendProfileUsername}>{selectedFriend?.username}</Text>
-                  <Text style={styles.usernameRating}>
-                    {friendRatings.length > 0 ? `★ ${avgStars(friendRatings)}/4` : "★ —/4"}
-                  </Text>
-                </View>
+                <Text style={styles.friendProfileUsername}>{selectedFriend?.username}</Text>
+                <Text style={styles.friendProfileRating}>
+                  ★ {friendRatings.length > 0 ? `${avgStars(friendRatings)}/4` : "—/4"}
+                </Text>
                 {selectedFriend?.recently_abandoned_at && (
                   <View style={styles.abandonedBadge}>
                     <Text style={styles.abandonedBadgeText}>Recently Abandoned</Text>
@@ -1076,10 +1085,10 @@ function makeStyles(c: Colors) { return StyleSheet.create({
   statNumAbandoned: { color: "#e65100" },
   statLabel: { fontSize: 11, color: c.textFaint, marginTop: 2 },
   statDivider: { width: 1, backgroundColor: c.border },
-  collapsibleHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 20, marginBottom: 12 },
+  collapsibleHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 8, marginBottom: 12 },
   chevron: { fontSize: 11, color: c.placeholder },
-  sectionLabel: { fontSize: 11, fontWeight: "600", letterSpacing: 0.6, textTransform: "uppercase", color: c.placeholder, marginBottom: 10, marginTop: 24 },
-  sportsRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 8 },
+  sectionLabel: { fontSize: 11, fontWeight: "600", letterSpacing: 0.6, textTransform: "uppercase", color: c.placeholder, marginBottom: 10, marginTop: 16 },
+  sportsRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 4 },
   sportChip: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface },
   sportChipActive: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, backgroundColor: "#212121", borderWidth: 1, borderColor: "#212121" },
   sportChipText: { fontSize: 13, color: c.textMuted },
@@ -1112,7 +1121,8 @@ function makeStyles(c: Colors) { return StyleSheet.create({
   friendProfileAvatar: { width: 80, height: 80, borderRadius: 40 },
   friendProfileAvatarPlaceholder: { width: 80, height: 80, borderRadius: 40, backgroundColor: "#212121", alignItems: "center", justifyContent: "center" },
   friendProfileAvatarText: { fontSize: 32, fontWeight: "700", color: "#fff" },
-  friendProfileUsername: { fontSize: 20, fontWeight: "700", color: c.text, marginBottom: 10 },
+  friendProfileUsername: { fontSize: 20, fontWeight: "700", color: c.text, marginBottom: 4 },
+  friendProfileRating: { fontSize: 14, fontWeight: "600", color: "#f59e0b", marginBottom: 10 },
   removeFriendBtn: { paddingHorizontal: 16, paddingVertical: 7, borderRadius: 8, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface },
   removeFriendBtnText: { fontSize: 13, fontWeight: "600", color: "#e53935" },
   ratingHeaderLeft: { flexDirection: "row", alignItems: "center", gap: 8 },
@@ -1124,9 +1134,15 @@ function makeStyles(c: Colors) { return StyleSheet.create({
   starSelector: { flexDirection: "row", gap: 8, marginBottom: 12 },
   starBtn: { fontSize: 32 },
   backBtnText: { fontSize: 16, color: c.text, fontWeight: "500" },
-  signOutBtn: { marginTop: 32, paddingVertical: 14, borderRadius: 12, borderWidth: 1, borderColor: c.border, alignItems: "center", backgroundColor: c.surface },
+  actionGroup: { marginTop: 32, backgroundColor: c.surface, borderRadius: 12, borderWidth: 1, borderColor: c.border, overflow: "hidden" },
+  actionRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 14 },
+  actionRowLeft: { flexDirection: "row", alignItems: "center", gap: 12 },
+  actionRowText: { fontSize: 15, fontWeight: "600", color: c.text },
+  actionRowTextAmber: { color: "#F59E0B" },
+  actionRowChevron: { color: c.placeholder },
+  actionRowDivider: { height: 1, backgroundColor: c.borderLight, marginHorizontal: 16 },
+  signOutBtn: { marginTop: 10, paddingVertical: 14, borderRadius: 12, borderWidth: 1, borderColor: c.border, alignItems: "center", backgroundColor: c.surface },
   signOutText: { fontSize: 14, fontWeight: "600", color: "#e53935" },
-  settingsChangePasswordText: { fontSize: 14, fontWeight: "600", color: c.text },
   abandonedBadge: { backgroundColor: "#fff3e0", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, borderWidth: 1, borderColor: "#ff9800" },
   abandonedBadgeText: { fontSize: 11, color: "#e65100", fontWeight: "700" },
   settingsCard: { margin: 20, backgroundColor: c.surface, borderRadius: 12, borderWidth: 1, borderColor: c.border, overflow: "hidden" },
@@ -1163,7 +1179,7 @@ function makeStyles(c: Colors) { return StyleSheet.create({
   gameCardSport: { fontSize: 14, fontWeight: "600", color: c.text },
   gameCardTime: { fontSize: 12, color: c.textFaint },
   gameCardLocation: { fontSize: 14, color: c.textSub, marginBottom: 2 },
-  gameCardDate: { fontSize: 11, color: "#1565c0", marginBottom: 4 },
+  gameCardDate: { fontSize: 11, color: "#22c55e", marginBottom: 4 },
   gameCardMeta: { fontSize: 12, color: c.textFaint },
   // Avatar border ring
   avatarRing: { borderRadius: 44, overflow: "hidden" },
@@ -1171,7 +1187,7 @@ function makeStyles(c: Colors) { return StyleSheet.create({
   coinChip: { backgroundColor: "#fff8e1", borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: "#ffe082" },
   coinChipText: { fontSize: 13, fontWeight: "700", color: "#e65100" },
   // Shop button
-  shopBtnText: { fontSize: 14, fontWeight: "600", color: "#1976d2" },
+  shopBtnText: { fontSize: 14, fontWeight: "600", color: c.text },
   // Shop layout
   shopScrollContent: { padding: 16, paddingBottom: 40 },
   shopSectionLabel: { fontSize: 13, fontWeight: "700", color: c.textMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 12, marginTop: 4 },
@@ -1185,11 +1201,11 @@ function makeStyles(c: Colors) { return StyleSheet.create({
   earnAmount: { fontSize: 15, fontWeight: "700", color: "#e65100" },
   earnDivider: { height: 1, backgroundColor: c.borderLight, marginVertical: 10 },
   borderCard: { width: "47%", backgroundColor: c.surface, borderRadius: 14, borderWidth: 1, borderColor: c.border, padding: 14, alignItems: "center", gap: 8 },
-  borderCardEquipped: { borderColor: "#1976d2", borderWidth: 2 },
+  borderCardEquipped: { borderColor: "#22c55e", borderWidth: 2 },
   borderPreviewImage: { width: 90, height: 90 },
   borderName: { fontSize: 14, fontWeight: "700", color: c.text },
   borderPrice: { fontSize: 12, color: c.textFaint },
-  buyBtn: { backgroundColor: "#1976d2", borderRadius: 8, paddingHorizontal: 16, paddingVertical: 7, width: "100%", alignItems: "center" },
+  buyBtn: { backgroundColor: "#22c55e", borderRadius: 8, paddingHorizontal: 16, paddingVertical: 7, width: "100%", alignItems: "center" },
   buyBtnDisabled: { backgroundColor: c.borderLight },
   buyBtnText: { color: "#fff", fontSize: 13, fontWeight: "600" },
   buyBtnTextDisabled: { color: c.textFaint },

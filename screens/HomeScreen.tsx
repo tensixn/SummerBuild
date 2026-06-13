@@ -4,6 +4,7 @@ import {
   Alert, StyleSheet, Modal, ScrollView, Image, TextInput, RefreshControl,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../lib/supabase";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Game, Sport, SPORTS, Notification, Profile, Review } from "../lib/types";
@@ -819,12 +820,8 @@ export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGam
           <Text style={styles.appName}>NTU Sports</Text>
           <View style={styles.headerRight}>
             <Pressable style={styles.notifBtn} onPress={() => { fetchAllNotifications(); setShowMailbox(true); }}>
-              <Text style={styles.notifIcon}>📬</Text>
-              {notifications.length > 0 && (
-                <View style={styles.notifBadge}>
-                  <Text style={styles.notifBadgeText}>{notifications.length}</Text>
-                </View>
-              )}
+              <Ionicons name="notifications-outline" size={24} color="#6B7280" />
+              {notifications.length > 0 && <View style={styles.notifBadge} />}
             </Pressable>
           </View>
         </View>
@@ -1358,9 +1355,7 @@ function makeStyles(c: Colors, isDark = false) { return StyleSheet.create({
   appName: { fontSize: 22, fontWeight: "700", color: c.text },
   headerRight: { flexDirection: "row", alignItems: "center", gap: 12 },
   notifBtn: { position: "relative" },
-  notifIcon: { fontSize: 22 },
-  notifBadge: { position: "absolute", top: -4, right: -4, backgroundColor: "#e53935", borderRadius: 8, minWidth: 16, height: 16, alignItems: "center", justifyContent: "center" },
-  notifBadgeText: { color: "#fff", fontSize: 10, fontWeight: "700" },
+  notifBadge: { position: "absolute", top: 0, right: 0, width: 8, height: 8, borderRadius: 4, backgroundColor: "#EF4444" },
   livePill: { flexDirection: "row", alignItems: "center", gap: 5 },
   liveDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: "#4caf50" },
   liveText: { fontSize: 12, color: c.textFaint },
@@ -1420,7 +1415,7 @@ function makeStyles(c: Colors, isDark = false) { return StyleSheet.create({
   participantInfo: { flex: 1 },
   participantNameRow: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 2 },
   participantName: { fontSize: 15, fontWeight: "600", color: c.text },
-  creatorBadge: { fontSize: 11, fontWeight: "600", color: "#1565c0", backgroundColor: "#e3f2fd", paddingHorizontal: 7, paddingVertical: 2, borderRadius: 10 },
+  creatorBadge: { fontSize: 11, fontWeight: "600", color: "#22c55e", backgroundColor: "#f0fdf4", paddingHorizontal: 7, paddingVertical: 2, borderRadius: 10 },
   participantRatingRow: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
   participantSports: { fontSize: 12, color: c.textFaint, flexShrink: 1 },
   participantRating: { fontSize: 12, color: "#f59e0b", fontWeight: "600" },
@@ -1499,11 +1494,11 @@ function makeStyles(c: Colors, isDark = false) { return StyleSheet.create({
   calDaySlot: { flex: 1, alignItems: "center", paddingVertical: 3 },
   calDayCircle: { width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center" },
   calDayCircleSelected: { backgroundColor: c.primary },
-  calDayCircleToday: { backgroundColor: "#e8f4fd", borderWidth: 1, borderColor: "#1976d2" },
+  calDayCircleToday: { backgroundColor: "#f0fdf4", borderWidth: 1, borderColor: "#22c55e" },
   calDayText: { fontSize: 13, color: c.text },
   calDayTextSelected: { color: c.primaryText, fontWeight: "700" },
   calDayTextPast: { color: c.placeholder },
-  calDayTextToday: { color: "#1976d2", fontWeight: "700" },
+  calDayTextToday: { color: "#22c55e", fontWeight: "700" },
   gameActionRow: { flexDirection: "row", gap: 10, marginBottom: 16 },
   gameActionBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, borderRadius: 12, paddingVertical: 12 },
   gameActionIcon: { fontSize: 16 },

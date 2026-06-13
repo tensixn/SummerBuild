@@ -3,6 +3,7 @@ import {
   View, Text, TextInput, Pressable,
   StyleSheet, Platform, Alert, TouchableOpacity,
 } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import * as WebBrowser from "expo-web-browser";
@@ -22,13 +23,16 @@ export default function LoginScreen({ onSwitch, onLogin }: {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true);
 
   async function handleLogin() {
     setLoading(true);
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     setLoading(false);
-    if (error) Alert.alert("Error", error.message);
-    else onLogin();
+    if (error) { Alert.alert("Error", error.message); return; }
+    await AsyncStorage.setItem("@remember_me", rememberMe ? "1" : "0");
+    if (!rememberMe) await supabase.auth.signOut();
+    onLogin();
   }
 
   async function handleGoogleLogin() {
@@ -51,6 +55,7 @@ export default function LoginScreen({ onSwitch, onLogin }: {
         if (access_token && refresh_token) {
           const { error: sessionError } = await supabase.auth.setSession({ access_token, refresh_token });
           if (sessionError) throw sessionError;
+          await AsyncStorage.setItem("@remember_me", rememberMe ? "1" : "0");
           onLogin();
         }
       }
@@ -111,6 +116,13 @@ export default function LoginScreen({ onSwitch, onLogin }: {
         </TouchableOpacity>
       </View>
 
+      <Pressable style={styles.checkboxRow} onPress={() => setRememberMe(v => !v)}>
+        <View style={[styles.checkbox, rememberMe && styles.checkboxChecked]}>
+          {rememberMe && <Ionicons name="checkmark" size={13} color="#fff" />}
+        </View>
+        <Text style={styles.checkboxLabel}>Remember me</Text>
+      </Pressable>
+
       <Pressable
         style={[styles.btn, loading && styles.btnDisabled]}
         onPress={handleLogin}
@@ -160,6 +172,15 @@ function makeStyles(c: Colors) {
     dividerRow: { flexDirection: "row", alignItems: "center", marginBottom: 16 },
     dividerLine: { flex: 1, height: 1, backgroundColor: c.border },
     dividerText: { marginHorizontal: 12, fontSize: 12, color: c.textFaint },
+    checkboxRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 16 },
+    checkbox: {
+      width: 20, height: 20, borderRadius: 5,
+      borderWidth: 1.5, borderColor: c.border,
+      alignItems: "center", justifyContent: "center",
+      backgroundColor: c.surface,
+    },
+    checkboxChecked: { backgroundColor: "#212121", borderColor: "#212121" },
+    checkboxLabel: { fontSize: 14, color: c.textSub },
     switchText: { textAlign: "center", fontSize: 13, color: c.textFaint },
     switchLink: { color: c.text, fontWeight: "600" },
   });
