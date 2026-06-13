@@ -452,7 +452,6 @@ export default function MapScreen() {
               <>
                 <View style={styles.sheetHeader}>
                   <Text style={styles.sheetTitle}>All Games</Text>
-                  <CloseButton onPress={collapseSheet} />
                 </View>
                 <Text style={styles.sheetSectionLabel}>Sorted by distance</Text>
                 <ScrollView style={styles.sheetScroll} showsVerticalScrollIndicator={false}>

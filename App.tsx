@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { View, Pressable, StyleSheet, Linking } from "react-native";
+import { BlurView } from "expo-blur";
 import { Ionicons } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -116,22 +117,24 @@ function AppContent() {
            tab === "leaderboard" ? <LeaderboardScreen /> :
            <ProfileScreen />}
         </View>
-        <View style={[styles.nav, { paddingBottom: insets.bottom || 8, backgroundColor: colors.surface, borderTopColor: colors.borderLight }]}>
-          <Pressable style={styles.navItem} onPress={() => setTab("games")}>
-            <Ionicons name={tab === "games" ? "flash" : "flash-outline"} size={26} color={tab === "games" ? "#22c55e" : "#9e9e9e"} />
-          </Pressable>
-          <Pressable style={styles.navItem} onPress={() => setTab("map")}>
-            <Ionicons name={tab === "map" ? "map" : "map-outline"} size={26} color={tab === "map" ? "#22c55e" : "#9e9e9e"} />
-          </Pressable>
-          <Pressable style={styles.navItem} onPress={() => setTab("search")}>
-            <Ionicons name={tab === "search" ? "search" : "search-outline"} size={26} color={tab === "search" ? "#22c55e" : "#9e9e9e"} />
-          </Pressable>
-          <Pressable style={styles.navItem} onPress={() => setTab("leaderboard")}>
-            <Ionicons name={tab === "leaderboard" ? "trophy" : "trophy-outline"} size={26} color={tab === "leaderboard" ? "#22c55e" : "#9e9e9e"} />
-          </Pressable>
-          <Pressable style={styles.navItem} onPress={() => setTab("profile")}>
-            <Ionicons name={tab === "profile" ? "person" : "person-outline"} size={26} color={tab === "profile" ? "#22c55e" : "#9e9e9e"} />
-          </Pressable>
+        <View style={[styles.navWrapper, { bottom: Math.max((insets.bottom || 0) - 10, 4) }]}>
+          <BlurView intensity={70} tint={isDark ? "dark" : "light"} style={styles.nav}>
+            <Pressable style={styles.navItem} onPress={() => setTab("games")}>
+              <Ionicons name={tab === "games" ? "flash" : "flash-outline"} size={26} color={tab === "games" ? "#22c55e" : "#9e9e9e"} />
+            </Pressable>
+            <Pressable style={styles.navItem} onPress={() => setTab("map")}>
+              <Ionicons name={tab === "map" ? "map" : "map-outline"} size={26} color={tab === "map" ? "#22c55e" : "#9e9e9e"} />
+            </Pressable>
+            <Pressable style={styles.navItem} onPress={() => setTab("search")}>
+              <Ionicons name={tab === "search" ? "search" : "search-outline"} size={26} color={tab === "search" ? "#22c55e" : "#9e9e9e"} />
+            </Pressable>
+            <Pressable style={styles.navItem} onPress={() => setTab("leaderboard")}>
+              <Ionicons name={tab === "leaderboard" ? "trophy" : "trophy-outline"} size={26} color={tab === "leaderboard" ? "#22c55e" : "#9e9e9e"} />
+            </Pressable>
+            <Pressable style={styles.navItem} onPress={() => setTab("profile")}>
+              <Ionicons name={tab === "profile" ? "person" : "person-outline"} size={26} color={tab === "profile" ? "#22c55e" : "#9e9e9e"} />
+            </Pressable>
+          </BlurView>
         </View>
       </View>
     </ThemeContext.Provider>
@@ -141,15 +144,22 @@ function AppContent() {
 const styles = StyleSheet.create({
   root: { flex: 1 },
   content: { flex: 1 },
-  nav: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    flexDirection: "row",
-    paddingTop: 10,
+  navWrapper: {
+    position: "absolute",
+    left: 20,
+    right: 20,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 4,
-    elevation: 8,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 20,
+    elevation: 12,
   },
-  navItem: { flex: 1, alignItems: "center", paddingBottom: 4 },
+  nav: {
+    flexDirection: "row",
+    borderRadius: 35,
+    paddingVertical: 14,
+    paddingHorizontal: 8,
+    overflow: "hidden",
+  },
+  navItem: { flex: 1, alignItems: "center" },
 });

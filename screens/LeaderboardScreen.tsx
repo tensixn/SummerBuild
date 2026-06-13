@@ -330,7 +330,7 @@ function makeStyles(c: Colors) {
     tabTextActive: {
       color: c.text,
     },
-    container: { padding: 20, paddingBottom: 64 },
+    container: { padding: 20, paddingBottom: 100 },
     title: { fontSize: 26, fontWeight: "700", color: c.text, marginBottom: 4 },
     subtitle: { fontSize: 13, color: c.textFaint, marginBottom: 24 },
     empty: {
@@ -379,7 +379,7 @@ function makeStyles(c: Colors) {
     streakLabel: { fontSize: 11, color: c.textFaint, marginTop: 1 },
     findMeBtn: {
       position: "absolute",
-      bottom: 12,
+      bottom: 70,
       alignSelf: "center",
       backgroundColor: "#22c55e",
       paddingHorizontal: 20,
