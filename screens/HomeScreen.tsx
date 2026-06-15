@@ -166,71 +166,14 @@ export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGam
     return new Date(d.getFullYear(), d.getMonth(), 1);
   });
 
-  const cleanupExpiredGames = useCallback(async () => {
-    const now = new Date().toISOString();
-    // Open games that have started but end_time hasn't passed → in_progress
-    const { data: newlyStarted } = await supabase.from("games").update({ status: "in_progress" }).eq("status", "open").not("end_time", "is", null).lt("start_time", now).gt("end_time", now).select("id");
-    (newlyStarted ?? []).forEach((g: any) => notifyGameStatus(g.id, "started"));
-    // In_progress games whose end_time has passed → completed; capture for coin awards
-    const { data: newlyClosed } = await supabase.from("games").update({ status: "completed" }).eq("status", "in_progress").lt("end_time", now).select("id, created_by, repeat_weekly, sport, location, start_time, end_time, max_players, skill_level, description");
-    if (newlyClosed && newlyClosed.length > 0) {
-      (async () => {
-        for (const game of newlyClosed as any[]) {
-          notifyGameStatus(game.id, "ended");
-          const { data: parts } = await supabase.from("game_participants").select("user_id").eq("game_id", game.id).not("user_id", "is", null);
-          const partList = (parts ?? []) as any[];
-          const othersJoined = partList.some((p) => p.user_id && p.user_id !== game.created_by);
-          // Only award coins if the game had more than just the host
-          if (othersJoined) {
-            for (const p of partList) {
-              if (p.user_id) await awardCoins(p.user_id, 2, "game_complete", game.id);
-            }
-            if (game.created_by) await awardCoins(game.created_by, 5, "host_complete", game.id);
-          }
-          await scheduleRepeatGame(game);
-        }
-      })();
-    }
-    // Open games with no end_time that have started → completed
-    const { data: newlyClosedNoEnd } = await supabase.from("games").update({ status: "completed" }).in("status", ["open", "full"]).is("end_time", null).lt("start_time", now).select("id, created_by, repeat_weekly, sport, location, start_time, end_time, max_players, skill_level, description");
-    if (newlyClosedNoEnd && newlyClosedNoEnd.length > 0) {
-      (async () => {
-        for (const game of newlyClosedNoEnd as any[]) {
-          notifyGameStatus(game.id, "ended");
-          await scheduleRepeatGame(game);
-        }
-      })();
-    }
-    // Open/full games that skipped in_progress entirely (app was closed between start and end) → completed
-    const { data: newlyClosedSkipped } = await supabase.from("games").update({ status: "completed" }).in("status", ["open", "full"]).not("end_time", "is", null).lt("end_time", now).select("id, created_by, repeat_weekly, sport, location, start_time, end_time, max_players, skill_level, description");
-    if (newlyClosedSkipped && newlyClosedSkipped.length > 0) {
-      (async () => {
-        for (const game of newlyClosedSkipped as any[]) {
-          notifyGameStatus(game.id, "ended");
-          const { data: parts } = await supabase.from("game_participants").select("user_id").eq("game_id", game.id).not("user_id", "is", null);
-          const partList = (parts ?? []) as any[];
-          const othersJoined = partList.some((p) => p.user_id && p.user_id !== game.created_by);
-          if (othersJoined) {
-            for (const p of partList) {
-              if (p.user_id) await awardCoins(p.user_id, 2, "game_complete", game.id);
-            }
-            if (game.created_by) await awardCoins(game.created_by, 5, "host_complete", game.id);
-          }
-          await scheduleRepeatGame(game);
-        }
-      })();
-    }
-  }, []);
-
-  const fetchGames = useCallback(async () => {
+const fetchGames = useCallback(async () => {
     setLoading(true);
-    await cleanupExpiredGames();
     const { data, error } = await supabase
       .from("games_with_counts").select("*").in("status", ["open", "in_progress"]).order("start_time", { ascending: true });
     if (error) Alert.alert("Error", error.message);
     else setGames(data ?? []);
     setLoading(false);
-  }, [cleanupExpiredGames]);
+  }, []);
 
   const silentRefreshGames = useCallback(async () => {
     const { data } = await supabase
@@ -241,7 +184,7 @@ export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGam
   const fetchJoined = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
-    const { data } = await supabase.from("game_participants").select("game_id").eq("user_name", user.email);
+    const { data } = await supabase.from("game_participants").select("game_id").eq("user_id", user.id);
     if (data) setJoinedIds(new Set(data.map((r: any) => r.game_id)));
   }, []);
 
@@ -587,7 +530,7 @@ export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGam
   async function doLeaveGame(game: Game) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
-    const { error } = await supabase.from("game_participants").delete().eq("game_id", game.id).eq("user_name", user.email);
+    const { error } = await supabase.from("game_participants").delete().eq("game_id", game.id).eq("user_id", user.id);
     if (error) { Alert.alert("Error", error.message); return; }
     setJoinedIds((prev) => { const next = new Set(prev); next.delete(game.id); return next; });
     const minsUntilStart = (new Date(game.start_time).getTime() - Date.now()) / 60000;
