@@ -192,7 +192,7 @@ export default function ProfileScreen() {
   const fetchStats = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
-    const { data: participations } = await supabase.from("game_participants").select("game_id").eq("user_name", user.email);
+    const { data: participations } = await supabase.from("game_participants").select("game_id").eq("user_id", user.id);
     if (participations && participations.length > 0) {
       const gameIds = participations.map((p: any) => p.game_id);
       const { data: games } = await supabase.from("games_with_counts").select("*").in("id", gameIds).order("start_time", { ascending: false });
