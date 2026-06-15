@@ -14,7 +14,49 @@ Deno.serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
     )
 
-    const { game_id, joiner_name, joiner_id } = await req.json()
+    const body = await req.json()
+    const { target_user_id, title, body: msgBody, data: msgData, game_id, joiner_name, joiner_id } = body
+
+    // Generic push to a specific user (e.g. game invites) — token lookup stays server-side
+    if (target_user_id) {
+      if (!title || !msgBody) {
+        return new Response(JSON.stringify({ error: 'Missing title or body' }), {
+          status: 400, headers: { ...cors, 'Content-Type': 'application/json' },
+        })
+      }
+
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('expo_push_token')
+        .eq('id', target_user_id)
+        .single()
+
+      if (!profile?.expo_push_token) {
+        return new Response(JSON.stringify({ sent: false, reason: 'no_token' }), {
+          headers: { ...cors, 'Content-Type': 'application/json' },
+        })
+      }
+
+      const res = await fetch('https://exp.host/--/api/v2/push/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({
+          to: profile.expo_push_token,
+          title,
+          body: msgBody,
+          data: msgData ?? {},
+          sound: 'default',
+          channelId: 'games',
+        }),
+      })
+
+      const result = await res.json()
+      return new Response(JSON.stringify({ sent: true, result }), {
+        headers: { ...cors, 'Content-Type': 'application/json' },
+      })
+    }
+
+    // Legacy: "player joined" notification sent to the game creator
     if (!game_id || !joiner_name) {
       return new Response(JSON.stringify({ error: 'Missing game_id or joiner_name' }), {
         status: 400, headers: { ...cors, 'Content-Type': 'application/json' },

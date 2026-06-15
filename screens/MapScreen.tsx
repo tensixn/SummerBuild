@@ -132,7 +132,7 @@ export default function MapScreen() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
     const { data } = await supabase
-      .from("game_participants").select("game_id").eq("user_name", user.email);
+      .from("game_participants").select("game_id").eq("user_id", user.id);
     if (data) setJoinedIds(new Set(data.map((r: any) => r.game_id)));
   }, []);
 
@@ -248,7 +248,7 @@ export default function MapScreen() {
   async function leaveGame(game: Game) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
-    const { error } = await supabase.from("game_participants").delete().eq("game_id", game.id).eq("user_name", user.email);
+    const { error } = await supabase.from("game_participants").delete().eq("game_id", game.id).eq("user_id", user.id);
     if (error) { Alert.alert("Error", error.message); return; }
     setJoinedIds((prev) => { const next = new Set(prev); next.delete(game.id); return next; });
     await promoteFromWaitlist(game.id);

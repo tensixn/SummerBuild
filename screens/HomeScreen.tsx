@@ -233,11 +233,10 @@ export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGam
   }, [cleanupExpiredGames]);
 
   const silentRefreshGames = useCallback(async () => {
-    await cleanupExpiredGames();
     const { data } = await supabase
       .from("games_with_counts").select("*").in("status", ["open", "in_progress"]).order("start_time", { ascending: true });
     if (data) setGames(data);
-  }, [cleanupExpiredGames]);
+  }, []);
 
   const fetchJoined = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -679,22 +678,14 @@ export default function HomeScreen({ pendingGameId, onGameOpened }: { pendingGam
     });
     if (error) { Alert.alert("Error", error.message); return; }
     setInvitedIds((prev) => new Set(prev).add(friend.id));
-    // Send push notification
-    const { data: profile } = await supabase.from("profiles").select("expo_push_token").eq("id", friend.id).single();
-    if (profile?.expo_push_token) {
-      fetch("https://exp.host/--/api/v2/push/send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({
-          to: profile.expo_push_token,
-          title: "Game invite!",
-          body: `${currentUsername} invited you to a ${selectedGame.sport} at ${selectedGame.location}`,
-          data: { type: "game_invite", game_id: selectedGame.id },
-          sound: "default",
-          channelId: "games",
-        }),
-      }).catch(() => {});
-    }
+    supabase.functions.invoke("push-notification", {
+      body: {
+        target_user_id: friend.id,
+        title: "Game invite!",
+        body: `${currentUsername} invited you to a ${selectedGame.sport} at ${selectedGame.location}`,
+        data: { type: "game_invite", game_id: selectedGame.id },
+      },
+    }).catch(() => {});
   }
 
   async function openRateGame(game: Game) {
