@@ -4,6 +4,7 @@ import {
   KeyboardAvoidingView, Platform, StyleSheet, Modal, ActivityIndicator,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../lib/supabase";
 import { useTheme, Colors } from "../lib/theme";
 import CloseButton from "./CloseButton";
@@ -208,7 +209,7 @@ export default function ChatModal({ visible, onClose, gameId, gameTitle }: Props
                   onPress={sendMessage}
                   disabled={!input.trim() || sending}
                 >
-                  <Text style={styles.sendIcon}>➤</Text>
+                  <Ionicons name="send" size={16} color={styles.sendIcon.color} />
                 </Pressable>
               </>
             ) : (

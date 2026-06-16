@@ -4,6 +4,7 @@ import {
   RefreshControl, Pressable,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../lib/supabase";
 import { useTheme, Colors } from "../lib/theme";
 import AvatarWithFrame from "../components/AvatarWithFrame";
@@ -66,11 +67,16 @@ type LeaderEntry = {
 };
 
 
-const MEDALS = ["🥇", "🥈", "🥉"];
+const RANK_COLORS = ["#F59E0B", "#9CA3AF", "#CD7C2F"]; // gold, silver, bronze
+const ROW_HEIGHT_ESTIMATE = 94;
+// The floating pill tab bar visually covers the bottom of the screen even though
+// it sits outside this screen's own layout — reserve space for it so rows hidden
+// behind it are correctly treated as "off-screen".
+const BOTTOM_OBSCURED_HEIGHT = 90;
 
 export default function LeaderboardScreen() {
-  const { colors } = useTheme();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const { colors, isDark } = useTheme();
+  const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
 
   const [allEntries, setAllEntries] = useState<LeaderEntry[]>([]);
   const [friendIds, setFriendIds] = useState<Set<string>>(new Set());
@@ -78,9 +84,12 @@ export default function LeaderboardScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [mode, setMode] = useState<"global" | "friends">("global");
+  const [scrollY, setScrollY] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(0);
 
   const scrollRef = useRef<ScrollView>(null);
   const myRowY = useRef<number>(-1);
+  const myRowHeight = useRef<number>(ROW_HEIGHT_ESTIMATE);
 
   const fetchLeaderboard = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -189,11 +198,19 @@ export default function LeaderboardScreen() {
   function switchMode(next: "global" | "friends") {
     myRowY.current = -1;
     setMode(next);
+    setScrollY(0);
     scrollRef.current?.scrollTo({ y: 0, animated: false });
   }
 
   const meIndex = entries.findIndex((e) => e.userId === currentUserId);
-  const showFindMe = !loading && meIndex >= 0;
+  // Visible window = what's actually on-screen, minus the area the floating
+  // tab bar covers at the bottom. Row is visible if it overlaps that window at all.
+  const visibleTop = scrollY;
+  const visibleBottom = scrollY + viewportHeight - BOTTOM_OBSCURED_HEIGHT;
+  const rowTop = myRowY.current;
+  const rowBottom = rowTop + myRowHeight.current;
+  const myRowVisible = rowTop >= 0 && viewportHeight > 0 && rowBottom > visibleTop && rowTop < visibleBottom;
+  const showFindMe = !loading && meIndex >= 0 && !myRowVisible;
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -204,17 +221,19 @@ export default function LeaderboardScreen() {
             style={[styles.tab, mode === "global" && styles.tabActive]}
             onPress={() => switchMode("global")}
           >
-            <Text style={[styles.tabText, mode === "global" && styles.tabTextActive]}>
-              🌐 Global
-            </Text>
+            <View style={styles.tabContent}>
+              <Ionicons name="globe-outline" size={14} color={(mode === "global" ? styles.tabTextActive : styles.tabText).color as string} />
+              <Text style={[styles.tabText, mode === "global" && styles.tabTextActive]}>Global</Text>
+            </View>
           </Pressable>
           <Pressable
             style={[styles.tab, mode === "friends" && styles.tabActive]}
             onPress={() => switchMode("friends")}
           >
-            <Text style={[styles.tabText, mode === "friends" && styles.tabTextActive]}>
-              👥 Friends
-            </Text>
+            <View style={styles.tabContent}>
+              <Ionicons name="people-outline" size={14} color={(mode === "friends" ? styles.tabTextActive : styles.tabText).color as string} />
+              <Text style={[styles.tabText, mode === "friends" && styles.tabTextActive]}>Friends</Text>
+            </View>
           </Pressable>
         </View>
 
@@ -222,6 +241,9 @@ export default function LeaderboardScreen() {
           ref={scrollRef}
           contentContainerStyle={styles.container}
           showsVerticalScrollIndicator={false}
+          onLayout={(e) => setViewportHeight(e.nativeEvent.layout.height)}
+          onScroll={(e) => setScrollY(e.nativeEvent.contentOffset.y)}
+          scrollEventThrottle={32}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         >
           <Text style={styles.title}>Leaderboards</Text>
@@ -242,43 +264,64 @@ export default function LeaderboardScreen() {
           ) : (
             entries.map((entry, index) => {
               const isMe = entry.userId === currentUserId;
-              const TOP3_BORDER = ["#F59E0B", "#9CA3AF", "#CD7C2F"];
-              const topBorder = index < 3 ? { borderLeftWidth: 4, borderLeftColor: TOP3_BORDER[index] } : undefined;
+              const isTop3 = index < 3;
+              const tierColor = isTop3 ? RANK_COLORS[index] : undefined;
+              const rowStyle =
+                index === 0 ? styles.rowFirst : isTop3 ? styles.rowTop3 : styles.rowQuiet;
+
               return (
                 <View
                   key={entry.userId}
-                  style={[styles.row, isMe && styles.rowMe, topBorder]}
-                  onLayout={isMe ? (e) => { myRowY.current = e.nativeEvent.layout.y; } : undefined}
+                  style={[
+                    styles.row,
+                    rowStyle,
+                    isTop3 && { borderColor: tierColor + "40" },
+                  ]}
+                  onLayout={isMe ? (e) => {
+                    myRowY.current = e.nativeEvent.layout.y;
+                    myRowHeight.current = e.nativeEvent.layout.height;
+                  } : undefined}
                 >
                   <View style={styles.rankBox}>
-                    {index < 3 ? (
-                      <Text style={styles.medal}>{MEDALS[index]}</Text>
+                    {isTop3 ? (
+                      <View style={[styles.rankBadge, { backgroundColor: tierColor }]}>
+                        <Text style={styles.rankBadgeText}>{index + 1}</Text>
+                      </View>
                     ) : (
-                      <Text style={styles.rank}>#{index + 1}</Text>
+                      <Text style={styles.rankPlain}>#{index + 1}</Text>
                     )}
                   </View>
 
-                  <AvatarWithFrame
-                    avatarUrl={entry.avatarUrl}
-                    initial={entry.username}
-                    equippedBorderId={entry.equippedBorderId}
-                    size="small"
-                  />
-
-                  <View style={styles.info}>
-                    <Text style={[styles.username, isMe && styles.usernameMe]} numberOfLines={1}>
-                      {entry.username}{isMe ? " (you)" : ""}
-                    </Text>
-                    <Text style={styles.currentStreak}>
-                      Current streak: {entry.current} {entry.current === 1 ? "week" : "weeks"}
-                    </Text>
+                  <View style={styles.avatarRing}>
+                    <AvatarWithFrame
+                      avatarUrl={entry.avatarUrl}
+                      initial={entry.username}
+                      equippedBorderId={entry.equippedBorderId}
+                      size="small"
+                    />
                   </View>
 
-                  <View style={styles.streakBox}>
-                    <Text style={[styles.streakNum, isMe && styles.streakNumMe]}>
-                      {entry.longest}
-                    </Text>
-                    <Text style={styles.streakLabel}>wk best</Text>
+                  <View style={styles.info}>
+                    <View style={styles.usernameRow}>
+                      <Text
+                        style={[styles.username, !isTop3 && styles.usernameQuiet]}
+                        numberOfLines={1}
+                      >
+                        {entry.username}
+                      </Text>
+                      {isMe && (
+                        <View style={styles.youPill}>
+                          <Text style={styles.youPillText}>YOU</Text>
+                        </View>
+                      )}
+                    </View>
+                  </View>
+
+                  <View style={styles.statsBox}>
+                    <View style={styles.statItem}>
+                      <Text style={styles.statNumBest}>{entry.longest}</Text>
+                      <Text style={styles.statLabel}>best</Text>
+                    </View>
                   </View>
                 </View>
               );
@@ -287,8 +330,9 @@ export default function LeaderboardScreen() {
         </ScrollView>
 
         {showFindMe && (
-          <Pressable style={styles.findMeBtn} onPress={scrollToMe}>
-            <Text style={styles.findMeBtnText}>📍 #{meIndex + 1} — Find Me</Text>
+          <Pressable style={[styles.findMeBtn, styles.findMeBtnRow]} onPress={scrollToMe}>
+            <Ionicons name="locate" size={14} color="#fff" />
+            <Text style={styles.findMeBtnText}>#{meIndex + 1} — Find Me</Text>
           </Pressable>
         )}
       </View>
@@ -296,7 +340,7 @@ export default function LeaderboardScreen() {
   );
 }
 
-function makeStyles(c: Colors) {
+function makeStyles(c: Colors, isDark: boolean) {
   return StyleSheet.create({
     safe: { flex: 1, backgroundColor: c.bg },
     tabRow: {
@@ -322,6 +366,11 @@ function makeStyles(c: Colors) {
       shadowRadius: 3,
       elevation: 2,
     },
+    tabContent: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+    },
     tabText: {
       fontSize: 14,
       fontWeight: "600",
@@ -344,39 +393,57 @@ function makeStyles(c: Colors) {
       flexDirection: "row",
       alignItems: "center",
       backgroundColor: c.surface,
-      borderRadius: 14,
+      borderRadius: 12,
       borderWidth: 1,
       borderColor: c.border,
-      padding: 14,
+      paddingVertical: 14,
+      paddingHorizontal: 14,
       marginBottom: 10,
       gap: 12,
     },
-    rowMe: {
-      borderColor: "#22c55e",
-      borderWidth: 1.5,
+    rowFirst: {
+      backgroundColor: isDark ? "rgba(245,158,11,0.08)" : "#FFFBEB",
+      paddingVertical: 18,
+      paddingHorizontal: 16,
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 3 },
+      shadowOpacity: 0.1,
+      shadowRadius: 8,
+      elevation: 3,
     },
-    rankBox: { width: 34, alignItems: "center" },
-    medal: { fontSize: 24 },
-    rank: { fontSize: 14, fontWeight: "600", color: c.textMuted },
-    avatarRing: { borderRadius: 25, padding: 2 },
-    avatar: { width: 44, height: 44, borderRadius: 22 },
-    avatarPlaceholder: {
-      width: 44,
-      height: 44,
-      borderRadius: 22,
-      backgroundColor: c.borderLight,
-      justifyContent: "center",
+    rowTop3: {
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.05,
+      shadowRadius: 4,
+      elevation: 1,
+    },
+    rowQuiet: {
+      borderColor: c.borderLight,
+    },
+    rankBox: { width: 32, alignItems: "center" },
+    rankBadge: { width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center" },
+    rankBadgeText: { fontSize: 13, fontWeight: "800", color: "#fff" },
+    rankPlain: { fontSize: 13, fontWeight: "600", color: c.textFaint },
+    avatarRing: {
+      width: 66,
+      height: 66,
+      borderRadius: 33,
+      borderWidth: 2,
+      borderColor: "transparent",
       alignItems: "center",
+      justifyContent: "center",
     },
-    avatarText: { fontSize: 18, fontWeight: "700", color: c.textMuted },
-    info: { flex: 1 },
-    username: { fontSize: 15, fontWeight: "600", color: c.text },
-    usernameMe: { color: "#22c55e" },
-    currentStreak: { fontSize: 12, color: c.textFaint, marginTop: 2 },
-    streakBox: { alignItems: "center", minWidth: 52 },
-    streakNum: { fontSize: 24, fontWeight: "700", color: "#22c55e" },
-    streakNumMe: { color: "#16a34a" },
-    streakLabel: { fontSize: 11, color: c.textFaint, marginTop: 1 },
+    info: { flex: 1, justifyContent: "center" },
+    usernameRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+    username: { fontSize: 15, fontWeight: "700", color: c.text, flexShrink: 1 },
+    usernameQuiet: { fontWeight: "600", color: c.textMuted },
+    youPill: { backgroundColor: "#22c55e", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
+    youPillText: { color: "#fff", fontSize: 10, fontWeight: "800", letterSpacing: 0.5 },
+    statsBox: { flexDirection: "row", alignItems: "center", gap: 10 },
+    statItem: { alignItems: "center", minWidth: 32 },
+    statNumBest: { fontSize: 22, fontWeight: "800", color: "#22c55e" },
+    statLabel: { fontSize: 10, fontWeight: "600", color: c.textFaint, marginTop: 2, textTransform: "uppercase", letterSpacing: 0.4 },
     findMeBtn: {
       position: "absolute",
       bottom: 70,
@@ -391,6 +458,7 @@ function makeStyles(c: Colors) {
       shadowRadius: 4,
       elevation: 4,
     },
+    findMeBtnRow: { flexDirection: "row", alignItems: "center", gap: 6 },
     findMeBtnText: {
       color: "#fff",
       fontSize: 13,

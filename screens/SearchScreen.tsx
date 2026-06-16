@@ -314,9 +314,9 @@ export default function SearchScreen() {
   function renderActionBtn(item: SearchResult) {
     switch (item.friendStatus) {
       case "accepted":
-        return <Pressable style={styles.friendBadge} onPress={() => confirmRemoveFriend(item.id)}><Text style={styles.friendBadgeText}>Friends ✓</Text></Pressable>;
+        return <Pressable style={[styles.friendBadge, styles.friendBadgeRow]} onPress={() => confirmRemoveFriend(item.id)}><Text style={styles.friendBadgeText}>Friends</Text><Ionicons name="checkmark" size={13} color="#2e7d32" /></Pressable>;
       case "pending_sent":
-        return <Pressable style={styles.pendingBadge} onPress={() => cancelRequest(item.id)}><Text style={styles.pendingBadgeText}>Requested ✕</Text></Pressable>;
+        return <Pressable style={[styles.pendingBadge, styles.friendBadgeRow]} onPress={() => cancelRequest(item.id)}><Text style={styles.pendingBadgeText}>Requested</Text><Ionicons name="close" size={13} color={colors.textFaint} /></Pressable>;
       case "pending_received":
         return (
           <View style={styles.pendingReceivedRow}>
@@ -332,7 +332,7 @@ export default function SearchScreen() {
   function renderSuggestionActionBtn(item: Suggestion) {
     switch (item.friendStatus) {
       case "accepted":
-        return <Pressable style={styles.friendBadge} onPress={() => confirmRemoveFriend(item.id)}><Text style={styles.friendBadgeText}>Friends ✓</Text></Pressable>;
+        return <Pressable style={[styles.friendBadge, styles.friendBadgeRow]} onPress={() => confirmRemoveFriend(item.id)}><Text style={styles.friendBadgeText}>Friends</Text><Ionicons name="checkmark" size={13} color="#2e7d32" /></Pressable>;
       case "pending_sent":
         return <Pressable style={styles.pendingBadge} onPress={() => cancelRequest(item.id)}><Text style={styles.pendingBadgeText}>Requested</Text></Pressable>;
       case "pending_received":
@@ -453,8 +453,8 @@ export default function SearchScreen() {
           <Ionicons name="search-outline" size={18} color="#9CA3AF" style={styles.searchIcon} />
           <TextInput style={styles.searchInput} placeholder="Search by username..." value={query} onChangeText={search} autoCapitalize="none" autoCorrect={false} />
           {query.length > 0 && (
-            <Pressable onPress={() => { setQuery(""); setResults([]); }}>
-              <Text style={styles.clearBtn}>✕</Text>
+            <Pressable onPress={() => { setQuery(""); setResults([]); }} style={styles.clearBtn}>
+              <Ionicons name="close" size={14} color={colors.textFaint} />
             </Pressable>
           )}
         </View>
@@ -469,13 +469,14 @@ export default function SearchScreen() {
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.suggestionsList}>
                   {suggestions.map((item) => (
                     <Pressable key={item.id} style={styles.suggestionCard} onPress={() => openProfile(item)}>
-                      <AvatarWithFrame
-                        avatarUrl={item.avatar_url}
-                        initial={item.username}
-                        equippedBorderId={item.equipped_border_id}
-                        size="small"
-                        style={{ alignSelf: "center", marginBottom: 8 }}
-                      />
+                      <View style={styles.suggestionAvatarWrap}>
+                        <AvatarWithFrame
+                          avatarUrl={item.avatar_url}
+                          initial={item.username}
+                          equippedBorderId={item.equipped_border_id}
+                          size="small"
+                        />
+                      </View>
                       <Text style={styles.suggestionUsername} numberOfLines={1}>{item.username}</Text>
                       <Text style={styles.suggestionMutual}>
                         {item.mutualCount} mutual {item.mutualCount === 1 ? "friend" : "friends"}
@@ -538,7 +539,7 @@ function makeStyles(c: Colors) { return StyleSheet.create({
   searchBar: { flexDirection: "row", alignItems: "center", backgroundColor: c.surface, borderRadius: 12, borderWidth: 1, borderColor: c.border, paddingHorizontal: 12, marginBottom: 16 },
   searchIcon: { marginRight: 8 },
   searchInput: { flex: 1, fontSize: 15, paddingVertical: 12, color: c.text },
-  clearBtn: { fontSize: 14, color: c.textFaint, paddingLeft: 8 },
+  clearBtn: { paddingLeft: 8 },
   emptyText: { fontSize: 13, color: c.textFaint, textAlign: "center", marginTop: 32 },
   list: { paddingBottom: 40 },
   card: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: c.surface, borderRadius: 12, borderWidth: 1, borderColor: c.border, padding: 12, marginBottom: 10 },
@@ -561,12 +562,14 @@ function makeStyles(c: Colors) { return StyleSheet.create({
   declineBtn: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 8, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border },
   declineBtnText: { color: c.textMuted, fontSize: 12, fontWeight: "600" },
   friendBadge: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 8, backgroundColor: "#e8f5e9" },
+  friendBadgeRow: { flexDirection: "row", alignItems: "center", gap: 4 },
   friendBadgeText: { color: "#2e7d32", fontSize: 12, fontWeight: "600" },
   // Suggestions
   suggestionsSection: { marginBottom: 8 },
   suggestionsLabel: { fontSize: 11, fontWeight: "600", letterSpacing: 0.6, textTransform: "uppercase", color: c.placeholder, marginBottom: 12 },
   suggestionsList: { gap: 10, paddingBottom: 4 },
   suggestionCard: { width: 140, backgroundColor: c.surface, borderRadius: 14, borderWidth: 1, borderColor: c.border, padding: 14, alignItems: "center" },
+  suggestionAvatarWrap: { width: 62, height: 62, alignItems: "center", justifyContent: "center", marginBottom: 8 },
   suggestionUsername: { fontSize: 13, fontWeight: "600", color: c.text, marginBottom: 4, textAlign: "center" },
   suggestionMutual: { fontSize: 11, color: c.textFaint, textAlign: "center" },
   // Profile view

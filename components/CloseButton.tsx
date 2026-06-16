@@ -1,4 +1,5 @@
-import { Pressable, Text, StyleSheet } from "react-native";
+import { Pressable, StyleSheet } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../lib/theme";
 
 export default function CloseButton({ onPress }: { onPress: () => void }) {
@@ -9,7 +10,7 @@ export default function CloseButton({ onPress }: { onPress: () => void }) {
       hitSlop={8}
       style={[styles.btn, { backgroundColor: colors.borderLight }]}
     >
-      <Text style={[styles.icon, { color: colors.textMuted }]}>✕</Text>
+      <Ionicons name="close" size={18} color={colors.textMuted} />
     </Pressable>
   );
 }
@@ -21,10 +22,5 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
-  },
-  icon: {
-    fontSize: 14,
-    fontWeight: "600",
-    lineHeight: 18,
   },
 });

@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { Modal, View, Text, Pressable, ScrollView, TextInput, StyleSheet } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
 import { useTheme, Colors } from "../lib/theme";
 import { Game, Profile } from "../lib/types";
 import CloseButton from "./CloseButton";
@@ -31,7 +32,10 @@ export default function RatingModal({ visible, rateGame, rateParticipants, ratin
       <SafeAreaView style={styles.safe}>
         <View style={styles.header}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.title}>⭐ Rate Players</Text>
+            <View style={styles.titleRow}>
+              <Ionicons name="star" size={18} color="#f59e0b" />
+              <Text style={styles.title}>Rate Players</Text>
+            </View>
             {rateGame && <Text style={styles.subtitle}>{rateGame.sport} · {rateGame.location}</Text>}
           </View>
           <CloseButton onPress={onClose} />
@@ -39,7 +43,7 @@ export default function RatingModal({ visible, rateGame, rateParticipants, ratin
         <ScrollView contentContainerStyle={styles.content}>
           {rateParticipants.length === 0 && (
             <View style={styles.emptyBox}>
-              <Text style={styles.emptyIcon}>🎉</Text>
+              <Ionicons name="happy-outline" size={40} color={colors.textFaint} style={styles.emptyIcon} />
               <Text style={styles.emptyText}>You were the only player!</Text>
               <Text style={styles.emptySub}>Nothing to rate — tap Done to complete.</Text>
             </View>
@@ -59,7 +63,7 @@ export default function RatingModal({ visible, rateGame, rateParticipants, ratin
               <View style={styles.starsRow}>
                 {[1, 2, 3, 4].map((s) => (
                   <Pressable key={s} onPress={() => onRatingChange(p.id, ratingSelections[p.id] === s ? 0 : s)}>
-                    <Text style={{ fontSize: 28, color: s <= (ratingSelections[p.id] ?? 0) ? "#f59e0b" : "#e0e0e0" }}>★</Text>
+                    <Ionicons name="star" size={28} color={s <= (ratingSelections[p.id] ?? 0) ? "#f59e0b" : "#e0e0e0"} />
                   </Pressable>
                 ))}
               </View>
@@ -94,6 +98,7 @@ function makeStyles(c: Colors, isDark: boolean) {
   return StyleSheet.create({
     safe: { flex: 1, backgroundColor: c.bg },
     header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 20, borderBottomWidth: 1, borderBottomColor: c.borderLight },
+    titleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
     title: { fontSize: 17, fontWeight: "700", color: c.text },
     subtitle: { fontSize: 12, color: c.textFaint, marginTop: 2 },
     content: { padding: 20, paddingBottom: 48 },

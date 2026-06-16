@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { Modal, View, Text, Pressable, StyleSheet } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { useTheme, Colors } from "../lib/theme";
 import { Notification } from "../lib/types";
 
@@ -19,10 +20,18 @@ export default function NotificationModal({ visible, notifications, onDismiss, o
     <Modal visible={visible} animationType="fade" transparent>
       <View style={styles.overlay}>
         <View style={styles.modal}>
-          <Text style={styles.title}>🔔 New Notifications</Text>
+          <View style={styles.titleRow}>
+            <Ionicons name="notifications" size={18} color={colors.text} />
+            <Text style={styles.title}>New Notifications</Text>
+          </View>
           {notifications.map((n) => (
             <View key={n.id} style={[styles.item, n.type === "game_ended" && styles.itemRating]}>
-              {n.type === "game_ended" && <Text style={styles.typeIcon}>⭐ Time to Rate</Text>}
+              {n.type === "game_ended" && (
+                <View style={styles.typeIconRow}>
+                  <Ionicons name="star" size={12} color="#f59e0b" />
+                  <Text style={styles.typeIcon}>Time to Rate</Text>
+                </View>
+              )}
               <Text style={styles.message}>{n.message}</Text>
               <Text style={styles.time}>{new Date(n.created_at).toLocaleDateString()}</Text>
               {n.type === "friend_request" && (
@@ -50,10 +59,12 @@ function makeStyles(c: Colors, isDark: boolean) {
   return StyleSheet.create({
     overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center", padding: 24 },
     modal: { backgroundColor: c.surface, borderRadius: 16, padding: 24, width: "100%" },
-    title: { fontSize: 18, fontWeight: "700", color: c.text, marginBottom: 16 },
+    titleRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 16 },
+    title: { fontSize: 18, fontWeight: "700", color: c.text },
+    typeIconRow: { flexDirection: "row", alignItems: "center", gap: 4, marginBottom: 4 },
     item: { backgroundColor: isDark ? "rgba(255,152,0,0.12)" : "#fff3e0", borderRadius: 10, padding: 12, marginBottom: 10, borderWidth: 1, borderColor: isDark ? "rgba(255,152,0,0.25)" : "#ffe0b2" },
     itemRating: { backgroundColor: isDark ? "rgba(245,158,11,0.12)" : "#fffbeb", borderColor: isDark ? "rgba(245,158,11,0.28)" : "#fde68a" },
-    typeIcon: { fontSize: 12, fontWeight: "700", color: "#f59e0b", marginBottom: 4 },
+    typeIcon: { fontSize: 12, fontWeight: "700", color: "#f59e0b" },
     message: { fontSize: 13, color: c.text, lineHeight: 20, marginBottom: 4 },
     time: { fontSize: 11, color: c.textFaint },
     friendReqBtns: { flexDirection: "row", gap: 8, marginTop: 10 },

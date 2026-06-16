@@ -16,6 +16,29 @@ import { Switch } from "react-native";
 
 const SPORT_OPTIONS = SPORTS.filter((s) => s !== "All");
 
+// Single-coin badge — none of the bundled icon sets have a real single-coin
+// glyph (only stacks/bitcoin logos), so this renders a flat gold coin instead.
+function CoinIcon({ size = 16 }: { size?: number }) {
+  return (
+    <View
+      style={{
+        width: size,
+        height: size,
+        borderRadius: size / 2,
+        backgroundColor: "#FBBF24",
+        borderWidth: Math.max(1, Math.round(size * 0.1)),
+        borderColor: "#D97706",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      <Text style={{ fontSize: size * 0.55, fontWeight: "800", color: "#92400E", includeFontPadding: false }}>
+        $
+      </Text>
+    </View>
+  );
+}
+
 function getMondayOfWeek(dateStr: string): string {
   const d = new Date(dateStr);
   const day = d.getUTCDay();
@@ -557,7 +580,7 @@ export default function ProfileScreen() {
             />
             {editing && (
               <View style={styles.avatarOverlay}>
-                <Text style={styles.avatarOverlayText}>📷</Text>
+                <Ionicons name="camera" size={24} color="#fff" />
               </View>
             )}
           </Pressable>
@@ -578,8 +601,9 @@ export default function ProfileScreen() {
           )}
           {isOwnProfile && (
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-              <View style={styles.coinChip}>
-                <Text style={styles.coinChipText}>💰 {coins}</Text>
+              <View style={[styles.coinChip, styles.coinChipRow]}>
+                <CoinIcon size={14} />
+                <Text style={styles.coinChipText}>{coins}</Text>
               </View>
               <Pressable style={styles.editBtn} onPress={editing ? saveProfile : () => setEditing(true)}>
                 <Text style={styles.editBtnText}>{editing ? "Save" : "Edit profile"}</Text>
@@ -590,13 +614,13 @@ export default function ProfileScreen() {
 
         <View style={styles.streakCard}>
           <View style={styles.streakItem}>
-            <Text style={styles.streakIcon}>🔥</Text>
+            <Ionicons name="flame" size={20} color="#f97316" style={styles.streakIcon} />
             <Text style={styles.streakNum}>{currentStreak}</Text>
             <Text style={styles.streakLabel}>Week Streak</Text>
           </View>
           <View style={styles.streakDivider} />
           <View style={styles.streakItem}>
-            <Text style={styles.streakIcon}>🏆</Text>
+            <Ionicons name="trophy" size={20} color="#f59e0b" style={styles.streakIcon} />
             <Text style={styles.streakNum}>{longestStreak}</Text>
             <Text style={styles.streakLabel}>Best Streak</Text>
           </View>
@@ -719,9 +743,13 @@ export default function ProfileScreen() {
       <Modal visible={showShop} animationType="slide" presentationStyle="pageSheet">
         <SafeAreaView style={styles.modalSafe}>
           <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>🛍 Avatar Borders</Text>
-            <View style={styles.coinChip}>
-              <Text style={styles.coinChipText}>💰 {coins}</Text>
+            <View style={styles.modalTitleRow}>
+              <Ionicons name="bag-outline" size={18} color={colors.text} />
+              <Text style={styles.modalTitle}>Avatar Borders</Text>
+            </View>
+            <View style={[styles.coinChip, styles.coinChipRow]}>
+              <CoinIcon size={14} />
+              <Text style={styles.coinChipText}>{coins}</Text>
             </View>
             <CloseButton onPress={() => setShowShop(false)} />
           </View>
@@ -730,19 +758,19 @@ export default function ProfileScreen() {
             <View style={styles.earnCard}>
               <Text style={styles.earnTitle}>How to earn coins</Text>
               <View style={styles.earnRow}>
-                <Text style={styles.earnIcon}>🏁</Text>
+                <Ionicons name="flag-outline" size={18} color={colors.text} style={styles.earnIcon} />
                 <Text style={styles.earnDesc}>Finish a game as participant</Text>
                 <Text style={styles.earnAmount}>+2</Text>
               </View>
               <View style={styles.earnDivider} />
               <View style={styles.earnRow}>
-                <Text style={styles.earnIcon}>🎮</Text>
+                <Ionicons name="game-controller-outline" size={18} color={colors.text} style={styles.earnIcon} />
                 <Text style={styles.earnDesc}>Host a game to completion</Text>
                 <Text style={styles.earnAmount}>+5</Text>
               </View>
               <View style={styles.earnDivider} />
               <View style={styles.earnRow}>
-                <Text style={styles.earnIcon}>⭐</Text>
+                <Ionicons name="star" size={18} color="#f59e0b" style={styles.earnIcon} />
                 <Text style={styles.earnDesc}>Rate a completed game</Text>
                 <Text style={styles.earnAmount}>+1</Text>
               </View>
@@ -759,7 +787,10 @@ export default function ProfileScreen() {
                 <View key={border.id} style={[styles.borderCard, equipped && styles.borderCardEquipped]}>
                   <Image source={{ uri: border.image }} style={styles.borderPreviewImage} resizeMode="contain" />
                   <Text style={styles.borderName}>{border.name}</Text>
-                  <Text style={styles.borderPrice}>💰 {border.price}</Text>
+                  <View style={styles.borderPriceRow}>
+                    <CoinIcon size={13} />
+                    <Text style={styles.borderPrice}>{border.price}</Text>
+                  </View>
                   {equipped ? (
                     <Pressable style={styles.unequipBtn} onPress={() => equipBorder(null)}>
                       <Text style={styles.unequipBtnText}>Unequip</Text>
@@ -895,9 +926,12 @@ export default function ProfileScreen() {
                   <View style={styles.friendInfo}>
                     <Text style={styles.friendUsername}>{f.username}</Text>
                     {friendNextGames[f.id] ? (
-                      <Text style={styles.friendNextGame} numberOfLines={1}>
-                        ⚡ {friendNextGames[f.id]!.sport} · {formatDate(friendNextGames[f.id]!.start_time)}
-                      </Text>
+                      <View style={styles.friendNextGameRow}>
+                        <Ionicons name="flash" size={12} color="#4CAF50" />
+                        <Text style={styles.friendNextGame} numberOfLines={1}>
+                          {friendNextGames[f.id]!.sport} · {formatDate(friendNextGames[f.id]!.start_time)}
+                        </Text>
+                      </View>
                     ) : f.sports_interests.length > 0 ? (
                       <Text style={styles.friendSports} numberOfLines={1}>{f.sports_interests.join(" · ")}</Text>
                     ) : null}
@@ -942,9 +976,15 @@ export default function ProfileScreen() {
                   </View>
                 )}
                 <View style={styles.friendStreakRow}>
-                  <Text style={styles.friendStreakText}>🔥 {friendCurrentStreak}-week streak</Text>
+                  <View style={styles.friendStreakItem}>
+                    <Ionicons name="flame" size={14} color="#f97316" />
+                    <Text style={styles.friendStreakText}>{friendCurrentStreak}-week streak</Text>
+                  </View>
                   <Text style={styles.friendStreakSep}>·</Text>
-                  <Text style={styles.friendStreakText}>🏆 Best: {friendLongestStreak}</Text>
+                  <View style={styles.friendStreakItem}>
+                    <Ionicons name="trophy" size={14} color="#f59e0b" />
+                    <Text style={styles.friendStreakText}>Best: {friendLongestStreak}</Text>
+                  </View>
                 </View>
                 {selectedFriend && (
                   <Pressable style={styles.removeFriendBtn} onPress={() => confirmRemoveFriend(selectedFriend)}>
@@ -974,7 +1014,10 @@ export default function ProfileScreen() {
                     <Text style={styles.nextGameSport}>{friendUpcomingGames[0].sport}</Text>
                     <Text style={styles.nextGameTime}>{formatTime(friendUpcomingGames[0].start_time, friendUpcomingGames[0].status)}</Text>
                   </View>
-                  <Text style={styles.nextGameLocation}>📍 {friendUpcomingGames[0].location}</Text>
+                  <View style={styles.nextGameLocationRow}>
+                    <Ionicons name="location-outline" size={13} color="rgba(255,255,255,0.9)" />
+                    <Text style={styles.nextGameLocation}>{friendUpcomingGames[0].location}</Text>
+                  </View>
                   <Text style={styles.nextGameDate}>{formatDate(friendUpcomingGames[0].start_time)}</Text>
                   <Text style={styles.nextGameMeta}>{friendUpcomingGames[0].current_players}/{friendUpcomingGames[0].max_players} players · {friendUpcomingGames[0].skill_level}</Text>
                 </View>
@@ -990,7 +1033,10 @@ export default function ProfileScreen() {
                       <Text style={styles.upcomingGameSport}>{game.sport}</Text>
                       <Text style={styles.upcomingGameTime}>{formatTime(game.start_time, game.status)}</Text>
                     </View>
-                    <Text style={styles.upcomingGameLocation}>📍 {game.location}</Text>
+                    <View style={styles.upcomingGameLocationRow}>
+                      <Ionicons name="location-outline" size={13} color={colors.textSub} />
+                      <Text style={styles.upcomingGameLocation}>{game.location}</Text>
+                    </View>
                     <Text style={styles.upcomingGameDate}>{formatDate(game.start_time)}</Text>
                     <Text style={styles.upcomingGameMeta}>{game.current_players}/{game.max_players} players · {game.skill_level}</Text>
                   </View>
@@ -1070,7 +1116,6 @@ function makeStyles(c: Colors) { return StyleSheet.create({
   avatar: { width: 80, height: 80, borderRadius: 40, backgroundColor: "#212121", alignItems: "center", justifyContent: "center" },
   avatarText: { fontSize: 32, fontWeight: "700", color: "#fff" },
   avatarOverlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, borderRadius: 40, backgroundColor: "rgba(0,0,0,0.4)", alignItems: "center", justifyContent: "center" },
-  avatarOverlayText: { fontSize: 24 },
   usernameRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 },
   username: { fontSize: 20, fontWeight: "700", color: c.text },
   usernameRating: { fontSize: 13, fontWeight: "600", color: "#f59e0b" },
@@ -1079,11 +1124,12 @@ function makeStyles(c: Colors) { return StyleSheet.create({
   editBtnText: { fontSize: 13, fontWeight: "500", color: c.text },
   streakCard: { flexDirection: "row", backgroundColor: c.surface, borderRadius: 14, borderWidth: 1, borderColor: c.border, marginBottom: 12, paddingVertical: 16 },
   streakItem: { flex: 1, alignItems: "center" },
-  streakIcon: { fontSize: 20, marginBottom: 4 },
+  streakIcon: { marginBottom: 4 },
   streakNum: { fontSize: 22, fontWeight: "700", color: c.text },
   streakLabel: { fontSize: 11, color: c.textFaint, marginTop: 2 },
   streakDivider: { width: 1, backgroundColor: c.border },
   friendStreakRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 6, marginBottom: 4 },
+  friendStreakItem: { flexDirection: "row", alignItems: "center", gap: 4 },
   friendStreakText: { fontSize: 13, color: c.textMuted },
   friendStreakSep: { fontSize: 13, color: c.textFaint },
   statsRow: { flexDirection: "row", backgroundColor: c.surface, borderRadius: 14, borderWidth: 1, borderColor: c.border, marginBottom: 24, paddingVertical: 16 },
@@ -1121,6 +1167,7 @@ function makeStyles(c: Colors) { return StyleSheet.create({
   friendInfo: { flex: 1 },
   friendUsername: { fontSize: 15, fontWeight: "600", color: c.text, marginBottom: 2 },
   friendSports: { fontSize: 12, color: c.textFaint },
+  friendNextGameRow: { flexDirection: "row", alignItems: "center", gap: 4 },
   friendNextGame: { fontSize: 12, color: "#4CAF50", fontWeight: "500" },
   friendArrow: { fontSize: 20, color: c.placeholder },
   friendProfileHeader: { alignItems: "center", marginBottom: 24, paddingTop: 8 },
@@ -1166,20 +1213,23 @@ function makeStyles(c: Colors) { return StyleSheet.create({
   modalSafe: { flex: 1, backgroundColor: c.bg },
   modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 20, borderBottomWidth: 1, borderBottomColor: c.borderLight },
   modalTitle: { fontSize: 18, fontWeight: "700", color: c.text },
+  modalTitleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   modalList: { padding: 20, paddingBottom: 48 },
   gameCard: { backgroundColor: c.surface, borderRadius: 12, borderWidth: 1, borderColor: c.border, padding: 14, marginBottom: 10 },
   nextGameCard: { backgroundColor: "#4CAF50", borderRadius: 14, padding: 16, marginBottom: 16 },
   nextGameLabel: { fontSize: 11, fontWeight: "700", color: "rgba(255,255,255,0.75)", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 6 },
   nextGameSport: { fontSize: 18, fontWeight: "700", color: "#fff", flex: 1 },
   nextGameTime: { fontSize: 13, fontWeight: "600", color: "rgba(255,255,255,0.85)" },
-  nextGameLocation: { fontSize: 13, color: "rgba(255,255,255,0.9)", marginTop: 4 },
+  nextGameLocationRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 },
+  nextGameLocation: { fontSize: 13, color: "rgba(255,255,255,0.9)" },
   nextGameDate: { fontSize: 12, color: "rgba(255,255,255,0.75)", marginTop: 2 },
   nextGameMeta: { fontSize: 12, color: "rgba(255,255,255,0.75)", marginTop: 4 },
   upcomingGameCard: { backgroundColor: c.surface, borderRadius: 12, borderWidth: 1, borderColor: c.border, padding: 14, marginBottom: 8 },
   upcomingGameCardFirst: { borderColor: "#4CAF50", borderWidth: 1.5 },
   upcomingGameSport: { fontSize: 15, fontWeight: "600", color: c.text, flex: 1 },
   upcomingGameTime: { fontSize: 13, fontWeight: "500", color: c.textSub },
-  upcomingGameLocation: { fontSize: 13, color: c.textSub, marginTop: 3 },
+  upcomingGameLocationRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 3 },
+  upcomingGameLocation: { fontSize: 13, color: c.textSub },
   upcomingGameDate: { fontSize: 12, color: "#4CAF50", marginTop: 2 },
   upcomingGameMeta: { fontSize: 12, color: c.textFaint, marginTop: 3 },
   gameCardTop: { flexDirection: "row", justifyContent: "space-between", marginBottom: 4 },
@@ -1192,6 +1242,7 @@ function makeStyles(c: Colors) { return StyleSheet.create({
   avatarRing: { borderRadius: 44, overflow: "hidden" },
   // Coin chip
   coinChip: { backgroundColor: "#fff8e1", borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: "#ffe082" },
+  coinChipRow: { flexDirection: "row", alignItems: "center", gap: 4 },
   coinChipText: { fontSize: 13, fontWeight: "700", color: "#e65100" },
   // Shop button
   shopBtnText: { fontSize: 14, fontWeight: "600", color: c.text },
@@ -1212,6 +1263,7 @@ function makeStyles(c: Colors) { return StyleSheet.create({
   borderPreviewImage: { width: 90, height: 90 },
   borderName: { fontSize: 14, fontWeight: "700", color: c.text },
   borderPrice: { fontSize: 12, color: c.textFaint },
+  borderPriceRow: { flexDirection: "row", alignItems: "center", gap: 3 },
   buyBtn: { backgroundColor: "#22c55e", borderRadius: 8, paddingHorizontal: 16, paddingVertical: 7, width: "100%", alignItems: "center" },
   buyBtnDisabled: { backgroundColor: c.borderLight },
   buyBtnText: { color: "#fff", fontSize: 13, fontWeight: "600" },
