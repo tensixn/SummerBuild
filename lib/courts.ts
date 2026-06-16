@@ -70,7 +70,9 @@ export const NTU_COURTS: Court[] = [
     shortName: "The Wave",
     latitude: 1.34895,
     longitude: 103.68930,
-    sports: ["Frisbee", "Football"],
+    // Indoor multipurpose sports hall — configurable into 13 badminton courts or 3
+    // volleyball/basketball courts, with floor space for a football pitch.
+    sports: ["Badminton", "Basketball", "Volleyball", "Football"],
   },
 ];
 

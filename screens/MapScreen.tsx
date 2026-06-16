@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import {
   View, Text, StyleSheet, Alert, Pressable,
-  ScrollView, Animated, Dimensions,
+  ScrollView, Animated, Dimensions, PanResponder,
 } from "react-native";
 import MapView, { Marker, Circle, PROVIDER_DEFAULT } from "react-native-maps";
 import * as Location from "expo-location";
@@ -19,6 +19,13 @@ import CloseButton from "../components/CloseButton";
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 const PEEK_HEIGHT = 120;
 const FULL_HEIGHT = SCREEN_HEIGHT * 0.52;
+
+// react-native-maps is unreliable about adding/removing or restyling Marker instances
+// (markers can fail to reappear, or flash to the wrong position). Instead of mounting/
+// unmounting or toggling opacity per sport filter, filtered-out courts are simply moved
+// here — far outside the NTU bounds enforced by onRegionChangeComplete — so the same
+// marker instance stays mounted the whole time and is just relocated off-screen.
+const OFFSCREEN_COORD = { latitude: 0, longitude: 0 };
 
 const SPORT_COLORS: Record<string, string> = {
   Badminton: "#2e7d32",
@@ -225,6 +232,41 @@ export default function MapScreen() {
     }).start();
   }
 
+  const sheetFullRef = useRef(sheetFull);
+  useEffect(() => { sheetFullRef.current = sheetFull; }, [sheetFull]);
+
+  // Tracks where the drag started (0 = peek, 1 = full) so move deltas can be applied on top of it.
+  const dragStartValue = useRef(0);
+  const sheetRange = FULL_HEIGHT - PEEK_HEIGHT;
+
+  const sheetPanResponder = useRef(
+    PanResponder.create({
+      // Claim the gesture right away so both quick taps and drags are handled here.
+      onStartShouldSetPanResponder: () => true,
+      onPanResponderGrant: () => {
+        sheetAnim.stopAnimation((value) => { dragStartValue.current = value; });
+      },
+      onPanResponderMove: (_, gesture) => {
+        const next = Math.max(0, Math.min(1, dragStartValue.current - gesture.dy / sheetRange));
+        sheetAnim.setValue(next);
+        if (next > 0.5 && !sheetFullRef.current) setSheetFull(true);
+      },
+      onPanResponderRelease: (_, gesture) => {
+        // Negligible movement = treat as a tap, toggling the sheet instead of using gesture position.
+        if (Math.abs(gesture.dy) < 5 && Math.abs(gesture.dx) < 5) {
+          if (sheetFullRef.current) collapseSheet(); else expandSheet();
+          return;
+        }
+        const next = Math.max(0, Math.min(1, dragStartValue.current - gesture.dy / sheetRange));
+        const shouldExpand = next >= 0.5 || gesture.vy < -0.5;
+        if (shouldExpand) expandSheet(); else collapseSheet();
+      },
+      onPanResponderTerminate: () => {
+        if (sheetFullRef.current) expandSheet(); else collapseSheet();
+      },
+    })
+  ).current;
+
   const sheetHeight = sheetAnim.interpolate({
     inputRange: [0, 1],
     outputRange: [PEEK_HEIGHT, FULL_HEIGHT],
@@ -291,6 +333,9 @@ export default function MapScreen() {
 
   const activeCourtIds = courtsWithGames();
   const sortedGames = allGamesSorted();
+  function courtMatchesFilter(court: Court): boolean {
+    return sportFilter === "All" || court.sports.includes(sportFilter);
+  }
 
   return (
     <View style={styles.container}>
@@ -313,6 +358,7 @@ export default function MapScreen() {
       >
         {/* Crowd heatmap — 3 concentric rings fade outward to simulate a radial gradient */}
         {NTU_COURTS.flatMap((court) => {
+          if (!courtMatchesFilter(court)) return [];
           const score = courtBusynessScore(court.id, filteredGames);
           if (score === 0) return [];
           const [r, g, b] = busyRGB(score);
@@ -325,6 +371,7 @@ export default function MapScreen() {
         })}
 
         {NTU_COURTS.map((court) => {
+          const matchesFilter = courtMatchesFilter(court);
           const hasGame = activeCourtIds.has(court.id);
           const courtFilteredGames = filteredGames.filter(g => findCourt(g.location)?.id === court.id);
           const totalPlayers = courtFilteredGames.reduce((sum, g) => sum + g.current_players, 0);
@@ -332,20 +379,21 @@ export default function MapScreen() {
           return (
             <Marker
               key={court.id}
-              coordinate={{ latitude: court.latitude, longitude: court.longitude }}
-              onPress={() => openSheet(court)}
+              coordinate={matchesFilter ? { latitude: court.latitude, longitude: court.longitude } : OFFSCREEN_COORD}
+              onPress={() => matchesFilter && openSheet(court)}
               anchor={{ x: 0.5, y: 0.5 }}
             >
               <View style={[styles.markerOuter, hasGame && styles.markerOuterActive]}>
                 <View style={[styles.markerInner, hasGame && styles.markerInnerActive]}>
-                  {hasGame ? (
-                    <View style={styles.markerContent}>
-                      <Text style={styles.markerPlayerCount}>{totalPlayers}p</Text>
-                    </View>
-                  ) : (
-                    <Text style={styles.markerText}>{court.shortName.split(" ")[0]}</Text>
-                  )}
+                  <Text style={[styles.markerText, hasGame && styles.markerTextActive]}>
+                    {court.shortName.split(" ")[0]}
+                  </Text>
                 </View>
+                {hasGame && (
+                  <View style={styles.markerBadge}>
+                    <Text style={styles.markerBadgeText}>{totalPlayers}</Text>
+                  </View>
+                )}
               </View>
             </Marker>
           );
@@ -403,8 +451,8 @@ export default function MapScreen() {
 
       {/* Always-visible bottom sheet */}
       <Animated.View style={[styles.sheet, { height: sheetHeight }]}>
-        {/* Peek bar — tap to expand */}
-        <Pressable onPress={sheetFull ? collapseSheet : expandSheet}>
+        {/* Peek bar — tap to toggle, or drag up/down */}
+        <View {...sheetPanResponder.panHandlers}>
           <View style={styles.sheetHandle} />
           <View style={styles.peekBar}>
             <View>
@@ -417,7 +465,7 @@ export default function MapScreen() {
             </View>
             <Text style={styles.peekChevron}>{sheetFull ? "▼" : "▲"}</Text>
           </View>
-        </Pressable>
+        </View>
 
         {/* Full sheet content */}
         {sheetFull && (
@@ -612,9 +660,15 @@ function makeStyles(c: Colors) { return StyleSheet.create({
   markerInnerActive: { backgroundColor: "#212121" },
   markerContent: { flexDirection: "row", alignItems: "center", gap: 3 },
   markerEmoji: { fontSize: 10 },
-  markerPlayerCount: { fontSize: 10, fontWeight: "700", color: "#fff" },
   markerText: { fontSize: 10, fontWeight: "700", color: "#424242" },
   markerTextActive: { color: "#fff" },
+  markerBadge: {
+    position: "absolute", top: -6, right: -6,
+    minWidth: 16, height: 16, borderRadius: 8, paddingHorizontal: 3,
+    backgroundColor: "#e65100", alignItems: "center", justifyContent: "center",
+    borderWidth: 1.5, borderColor: "#fff",
+  },
+  markerBadgeText: { fontSize: 9, fontWeight: "700", color: "#fff" },
   sheet: {
     position: "absolute",
     bottom: 0,
