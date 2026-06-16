@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { View, Text, Pressable, StyleSheet } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { Game } from "../lib/types";
 import { useTheme, Colors } from "../lib/theme";
 
@@ -108,7 +109,7 @@ export default function GameCard({ game, isJoined, isWaitlisted, waitlistPositio
           {isFull && <View style={styles.fullPill}><Text style={styles.fullPillText}>Full</Text></View>}
           {onChat && (
             <Pressable style={styles.chatBtn} onPress={() => onChat(game)}>
-              <Text style={styles.chatIcon}>💬</Text>
+              <Ionicons name="chatbubble-outline" size={16} color={styles.chatIcon.color} />
               {hasUnread && <View style={styles.unreadDot} />}
             </Pressable>
           )}
@@ -313,7 +314,7 @@ function makeStyles(c: Colors) {
       paddingHorizontal: 4,
       paddingVertical: 2,
     },
-    chatIcon: { fontSize: 16 },
+    chatIcon: { color: c.textMuted },
     unreadDot: {
       position: "absolute",
       top: 0,

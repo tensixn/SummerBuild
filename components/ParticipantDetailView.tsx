@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { View, Text, Pressable, ScrollView, StyleSheet, StyleProp, ViewStyle } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { useTheme, Colors } from "../lib/theme";
 import { Profile, Review } from "../lib/types";
 import AvatarWithFrame from "./AvatarWithFrame";
@@ -34,7 +35,8 @@ export default function ParticipantDetailView({ profile, reviews, stats, friendS
         {profile.id !== currentUserId && (
           friendStatus === "friends" ? (
             <View style={styles.friendBadge}>
-              <Text style={styles.friendBadgeText}>✓ Friends</Text>
+              <Ionicons name="checkmark" size={13} color="#4CAF50" />
+              <Text style={styles.friendBadgeText}>Friends</Text>
             </View>
           ) : friendStatus === "pending" ? (
             <View style={[styles.friendBadge, styles.friendBadgePending]}>
@@ -108,7 +110,7 @@ function makeStyles(c: Colors, isDark: boolean) {
     profileHeader: { alignItems: "center", marginBottom: 24 },
     username: { fontSize: 20, fontWeight: "700", color: c.text, marginBottom: 4 },
     rating: { fontSize: 14, fontWeight: "600", color: "#f59e0b", marginBottom: 10 },
-    friendBadge: { marginTop: 8, marginBottom: 12, paddingHorizontal: 16, paddingVertical: 6, backgroundColor: "#e8f5e9", borderRadius: 20 },
+    friendBadge: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 8, marginBottom: 12, paddingHorizontal: 16, paddingVertical: 6, backgroundColor: "#e8f5e9", borderRadius: 20 },
     friendBadgePending: { backgroundColor: isDark ? "#2a2a2a" : "#f5f5f5" },
     friendBadgeText: { color: "#4CAF50", fontWeight: "600", fontSize: 13 },
     addFriendBtn: { marginTop: 8, marginBottom: 12, paddingHorizontal: 20, paddingVertical: 8, backgroundColor: "#4CAF50", borderRadius: 20 },

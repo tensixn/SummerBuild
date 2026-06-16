@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { View, Text, Pressable, StyleSheet } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { useTheme, Colors } from "../lib/theme";
 import { Game } from "../lib/types";
 
@@ -26,8 +27,11 @@ export default function UpcomingGamesSection({ games, expanded, onToggle, onOpen
   return (
     <View style={styles.section}>
       <Pressable style={styles.header} onPress={onToggle}>
-        <Text style={styles.title}>📅 Your Upcoming Games ({games.length})</Text>
-        <Text style={styles.chevron}>{expanded ? "▲" : "▼"}</Text>
+        <View style={styles.titleRow}>
+          <Ionicons name="calendar-outline" size={16} color={colors.text} />
+          <Text style={styles.title}>Your Upcoming Games ({games.length})</Text>
+        </View>
+        <Ionicons name={expanded ? "chevron-up" : "chevron-down"} size={14} color={colors.textFaint} />
       </Pressable>
       {expanded && games.map((game) => (
         <Pressable key={game.id} style={styles.card} onPress={() => onOpenGame(game)}>
@@ -50,8 +54,8 @@ function makeStyles(c: Colors) {
   return StyleSheet.create({
     section: { backgroundColor: c.surface, borderRadius: 14, borderWidth: 1, borderColor: c.border, marginBottom: 20, overflow: "hidden" },
     header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 14 },
+    titleRow: { flexDirection: "row", alignItems: "center", gap: 6 },
     title: { fontSize: 14, fontWeight: "600", color: c.text },
-    chevron: { fontSize: 12, color: c.textFaint },
     card: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 14, paddingVertical: 12, borderTopWidth: 1, borderTopColor: c.borderLight },
     cardLeft: { flex: 1 },
     sport: { fontSize: 14, fontWeight: "600", color: c.text, marginBottom: 2 },

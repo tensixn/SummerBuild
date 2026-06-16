@@ -10,6 +10,7 @@ import { promoteFromWaitlist } from "../lib/waitlist";
 import { Game } from "../lib/types";
 import { Court, NTU_COURTS, NTU_CENTER, findCourt } from "../lib/courts";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useTheme, Colors } from "../lib/theme";
 import ChatModal from "../components/ChatModal";
 import CloseButton from "../components/CloseButton";
@@ -27,12 +28,12 @@ const SPORT_COLORS: Record<string, string> = {
   Frisbee: "#6a1b9a",
 };
 
-const SPORT_EMOJI: Record<string, string> = {
-  Badminton: "🏸",
-  Basketball: "🏀",
-  Football: "⚽",
-  Volleyball: "🏐",
-  Frisbee: "🥏",
+const SPORT_ICON: Record<string, React.ComponentProps<typeof MaterialCommunityIcons>["name"]> = {
+  Badminton: "badminton",
+  Basketball: "basketball",
+  Football: "soccer",
+  Volleyball: "volleyball",
+  Frisbee: "disc",
 };
 
 const ALL_SPORTS = ["All", "Badminton", "Basketball", "Football", "Volleyball", "Frisbee"];
@@ -370,7 +371,13 @@ export default function MapScreen() {
               style={[styles.filterPill, sportFilter === sport && styles.filterPillActive]}
               onPress={() => setSportFilter(sport)}
             >
-              {sport !== "All" && <Text style={styles.filterEmoji}>{SPORT_EMOJI[sport]}</Text>}
+              {sport !== "All" && (
+                <MaterialCommunityIcons
+                  name={SPORT_ICON[sport]}
+                  size={13}
+                  color={sportFilter === sport ? "#fff" : SPORT_COLORS[sport]}
+                />
+              )}
               <Text style={[styles.filterText, sportFilter === sport && styles.filterTextActive]}>{sport}</Text>
             </Pressable>
           ))}
@@ -497,7 +504,11 @@ function GameRow({ game, joined, isWaitlisted, waitlistPosition, onJoin, onLeave
     <View style={styles.gameRow}>
       <View style={styles.gameRowLeft}>
         <View style={styles.gameRowTitleRow}>
-          <Text style={styles.gameRowEmoji}>{SPORT_EMOJI[game.sport] ?? "⚡"}</Text>
+          {SPORT_ICON[game.sport] ? (
+            <MaterialCommunityIcons name={SPORT_ICON[game.sport]} size={14} color={SPORT_COLORS[game.sport] ?? colors.text} />
+          ) : (
+            <Ionicons name="flash-outline" size={14} color={colors.text} />
+          )}
           <Text style={styles.gameRowSport}>{game.sport}</Text>
         </View>
         {showCourt && <Text style={styles.gameRowCourt}>{game.location}</Text>}
@@ -509,7 +520,7 @@ function GameRow({ game, joined, isWaitlisted, waitlistPosition, onJoin, onLeave
       </View>
       <View style={styles.gameRowBtns}>
         <Pressable style={styles.chatBtnRow} onPress={() => onChat(game)}>
-          <Text style={styles.chatIconRow}>💬</Text>
+          <Ionicons name="chatbubble-outline" size={16} color={colors.text} />
         </Pressable>
         {joined ? (
           <>
@@ -571,7 +582,6 @@ function makeStyles(c: Colors) { return StyleSheet.create({
     backgroundColor: "#212121",
     borderColor: "#212121",
   },
-  filterEmoji: { fontSize: 13 },
   filterText: { fontSize: 13, fontWeight: "500", color: c.textSub },
   filterTextActive: { color: "#fff", fontWeight: "600" },
   myLocBtn: {
@@ -651,7 +661,6 @@ function makeStyles(c: Colors) { return StyleSheet.create({
   },
   gameRowLeft: { flex: 1 },
   gameRowTitleRow: { flexDirection: "row", alignItems: "center", gap: 4, marginBottom: 2 },
-  gameRowEmoji: { fontSize: 14 },
   gameRowSport: { fontSize: 14, fontWeight: "600", color: c.text },
   gameRowCourt: { fontSize: 12, color: c.textMuted, marginBottom: 2 },
   gameRowTime: { fontSize: 12, color: c.textFaint, marginBottom: 6 },
@@ -660,7 +669,6 @@ function makeStyles(c: Colors) { return StyleSheet.create({
   gameRowSlots: { fontSize: 11, color: c.textFaint },
   gameRowBtns: { flexDirection: "column", gap: 6, alignItems: "flex-end" },
   chatBtnRow: { paddingHorizontal: 4, paddingVertical: 2 },
-  chatIconRow: { fontSize: 16 },
   joinBtn: { paddingHorizontal: 16, paddingVertical: 7, borderRadius: 8, borderWidth: 1, borderColor: c.border },
   joinBtnDisabled: { borderColor: c.borderLight },
   joinBtnText: { fontSize: 13, fontWeight: "500", color: c.text },

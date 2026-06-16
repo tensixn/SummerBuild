@@ -765,7 +765,15 @@ const fetchGames = useCallback(async () => {
           data={filtered}
           keyExtractor={(item) => item.id}
           showsVerticalScrollIndicator={false}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={isDark ? colors.text : undefined}
+              colors={isDark ? ["#22c55e"] : undefined}
+              progressBackgroundColor={isDark ? colors.surface : undefined}
+            />
+          }
           ListHeaderComponent={
             <>
               <FlatList
@@ -777,8 +785,12 @@ const fetchGames = useCallback(async () => {
                   </Pressable>
                 )}
               />
-              <Pressable style={styles.createBtn} onPress={() => setModalVisible(true)}>
-                <Text style={styles.createBtnText}>+ Create a game</Text>
+              <Pressable
+                style={({ pressed }) => [styles.createBtn, pressed && styles.createBtnPressed]}
+                onPress={() => setModalVisible(true)}
+              >
+                <Ionicons name="add-circle" size={20} color="#fff" />
+                <Text style={styles.createBtnText}>Create a Game</Text>
               </Pressable>
 
               <UpcomingGamesSection
@@ -791,8 +803,11 @@ const fetchGames = useCallback(async () => {
               {ratableGames.length > 0 && (
                 <View style={styles.upcomingSection}>
                   <Pressable style={styles.upcomingHeader} onPress={() => setShowRatableGames(!showRatableGames)}>
-                    <Text style={styles.upcomingTitle}>⭐ To Be Rated ({ratableGames.length})</Text>
-                    <Text style={styles.upcomingChevron}>{showRatableGames ? "▲" : "▼"}</Text>
+                    <View style={styles.upcomingTitleRow}>
+                      <Ionicons name="star" size={14} color="#f59e0b" />
+                      <Text style={styles.upcomingTitle}>To Be Rated ({ratableGames.length})</Text>
+                    </View>
+                    <Ionicons name={showRatableGames ? "chevron-up" : "chevron-down"} size={12} color={colors.textFaint} />
                   </Pressable>
                   {showRatableGames && ratableGames.map((game) => (
                     <Pressable key={game.id} style={styles.upcomingCard} onPress={() => openRateGame(game)}>
@@ -812,7 +827,7 @@ const fetchGames = useCallback(async () => {
               {/* Search + Advanced Filter */}
               <View style={styles.searchRow}>
                 <View style={styles.searchBar}>
-                  <Text style={styles.searchIcon}>🔍</Text>
+                  <Ionicons name="search-outline" size={16} color={styles.searchIcon.color} style={styles.searchIcon} />
                   <TextInput
                     style={styles.searchInput}
                     placeholder="Search by sport or location..."
@@ -823,8 +838,8 @@ const fetchGames = useCallback(async () => {
                     placeholderTextColor="#bdbdbd"
                   />
                   {searchQuery.length > 0 && (
-                    <Pressable onPress={() => setSearchQuery("")}>
-                      <Text style={styles.searchClear}>✕</Text>
+                    <Pressable onPress={() => setSearchQuery("")} style={styles.searchClear}>
+                      <Ionicons name="close" size={14} color={colors.placeholder} />
                     </Pressable>
                   )}
                 </View>
@@ -913,21 +928,22 @@ const fetchGames = useCallback(async () => {
                   </View>
 
                   {dateFilter !== null && (
-                    <Pressable onPress={() => setDateFilter(null)} style={styles.clearDateFilter}>
+                    <Pressable onPress={() => setDateFilter(null)} style={[styles.clearDateFilter, styles.clearDateFilterRow]}>
                       <Text style={styles.clearDateFilterText}>
                         {typeof dateFilter === "string"
-                          ? `Clear ${new Date(dateFilter).toLocaleDateString("en-SG", { day: "numeric", month: "short" })} ✕`
-                          : "Clear day filter ✕"}
+                          ? `Clear ${new Date(dateFilter).toLocaleDateString("en-SG", { day: "numeric", month: "short" })}`
+                          : "Clear day filter"}
                       </Text>
+                      <Ionicons name="close" size={12} color="#e53935" />
                     </Pressable>
                   )}
                 </View>
               )}
 
-              <Text style={styles.sectionLabel}>
+              <Text style={[styles.sectionLabel, styles.openGamesLabel]}>
                 Open games{(searchQuery.trim() || dateFilter !== null) ? " · filtered" : ""}
               </Text>
-              {loading && <ActivityIndicator style={{ marginTop: 32 }} />}
+              {loading && <ActivityIndicator color={isDark ? "#22c55e" : undefined} style={{ marginTop: 32 }} />}
             </>
           }
           ListEmptyComponent={
@@ -1032,8 +1048,9 @@ const fetchGames = useCallback(async () => {
                     )}
                     <Text style={styles.inviteFriendName}>{f.username}</Text>
                     {invitedIds.has(f.id) ? (
-                      <View style={styles.invitedBadge}>
-                        <Text style={styles.invitedBadgeText}>Invited ✓</Text>
+                      <View style={[styles.invitedBadge, styles.invitedBadgeRow]}>
+                        <Text style={styles.invitedBadgeText}>Invited</Text>
+                        <Ionicons name="checkmark" size={13} color="#2e7d32" />
                       </View>
                     ) : (
                       <Pressable style={styles.inviteBtn} onPress={() => sendGameInvite(f)}>
@@ -1058,9 +1075,18 @@ const fetchGames = useCallback(async () => {
           ) : (
             <ScrollView contentContainerStyle={styles.modalContent}>
               <View style={styles.gameInfoRow}>
-                <Text style={styles.gameInfoText}>🕐 {selectedGame ? formatTime(selectedGame.start_time) : ""}</Text>
-                <Text style={styles.gameInfoText}>👥 {selectedGame?.current_players}/{selectedGame?.max_players} players</Text>
-                <Text style={styles.gameInfoText}>🏠 {selectedGame?.skill_level}</Text>
+                <View style={styles.gameInfoItem}>
+                  <Ionicons name="time-outline" size={14} color={colors.textMuted} />
+                  <Text style={styles.gameInfoText}>{selectedGame ? formatTime(selectedGame.start_time) : ""}</Text>
+                </View>
+                <View style={styles.gameInfoItem}>
+                  <Ionicons name="people-outline" size={14} color={colors.textMuted} />
+                  <Text style={styles.gameInfoText}>{selectedGame?.current_players}/{selectedGame?.max_players} players</Text>
+                </View>
+                <View style={styles.gameInfoItem}>
+                  <Ionicons name="speedometer-outline" size={14} color={colors.textMuted} />
+                  <Text style={styles.gameInfoText}>{selectedGame?.skill_level}</Text>
+                </View>
               </View>
               <Pressable
                 style={styles.chatRowBtn}
@@ -1075,17 +1101,19 @@ const fetchGames = useCallback(async () => {
                   setChatGame(game);
                 }}
               >
-                <Text style={styles.chatRowIcon}>💬</Text>
-                <Text style={styles.chatRowText}>Game Chat</Text>
-                <Text style={styles.chatRowArrow}>›</Text>
+                <View style={styles.chatRowLeft}>
+                  <Ionicons name="chatbubble-outline" size={18} color={colors.text} />
+                  <Text style={styles.chatRowText}>Game Chat</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={colors.placeholder} />
               </Pressable>
               <Pressable style={styles.inviteRowBtn} onPress={() => { if (selectedGame) openInviteModal(selectedGame); }}>
-                <Text style={styles.gameActionIcon}>📨</Text>
+                <Ionicons name="mail-outline" size={16} color={colors.text} />
                 <Text style={styles.gameActionText}>Invite Friends</Text>
               </Pressable>
               <Text style={styles.sectionLabel}>Players Joined</Text>
               {loadingParticipants ? (
-                <ActivityIndicator style={{ marginTop: 16 }} />
+                <ActivityIndicator color={isDark ? "#22c55e" : undefined} style={{ marginTop: 16 }} />
               ) : participants.length === 0 ? (
                 <Text style={styles.emptyText}>No one has joined yet.</Text>
               ) : (
@@ -1182,7 +1210,7 @@ const fetchGames = useCallback(async () => {
             </Text>
 
             <View style={styles.leaveWarningBox}>
-              <Text style={styles.leaveWarningIcon}>⚠️</Text>
+              <Ionicons name="warning-outline" size={18} color="#e65100" style={{ marginTop: 1 }} />
               <Text style={styles.leaveWarningText}>
                 This game starts in less than 1 hour. Leaving now will give you a{" "}
                 <Text style={styles.leaveWarningBold}>Recently Abandoned</Text> badge visible to all players.
@@ -1299,18 +1327,38 @@ function makeStyles(c: Colors, isDark = false) { return StyleSheet.create({
   chipActive: { backgroundColor: c.primary, borderColor: c.primary },
   chipText: { fontSize: 13, color: c.textMuted },
   chipTextActive: { color: c.primaryText, fontWeight: "600" },
-  createBtn: { borderWidth: 1, borderStyle: "dashed", borderColor: c.placeholder, borderRadius: 12, padding: 12, alignItems: "center", marginBottom: 20, backgroundColor: c.surface },
-  createBtnText: { fontSize: 14, color: c.textMuted },
+  createBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: "#22c55e",
+    borderRadius: 14,
+    paddingVertical: 14,
+    marginBottom: 20,
+    shadowColor: "#22c55e",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  createBtnPressed: {
+    backgroundColor: "#16a34a",
+    transform: [{ scale: 0.98 }],
+    shadowOpacity: 0.12,
+  },
+  createBtnText: { fontSize: 15, fontWeight: "700", color: "#fff" },
   upcomingSection: { backgroundColor: c.surface, borderRadius: 14, borderWidth: 1, borderColor: c.border, marginBottom: 20, overflow: "hidden" },
   upcomingHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 14 },
+  upcomingTitleRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   upcomingTitle: { fontSize: 14, fontWeight: "600", color: c.text },
-  upcomingChevron: { fontSize: 12, color: c.textFaint },
   upcomingCard: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 14, paddingVertical: 12, borderTopWidth: 1, borderTopColor: c.borderLight },
   upcomingCardLeft: { flex: 1 },
   upcomingSport: { fontSize: 14, fontWeight: "600", color: c.text, marginBottom: 2 },
   upcomingLocation: { fontSize: 12, color: c.textMuted, marginBottom: 2 },
   upcomingTime: { fontSize: 11, color: c.textFaint },
   sectionLabel: { fontSize: 11, fontWeight: "600", letterSpacing: 0.7, textTransform: "uppercase", color: c.placeholder, marginBottom: 12, marginTop: 20 },
+  openGamesLabel: { fontSize: 15, fontWeight: "700", color: c.text },
   list: { paddingBottom: 40 },
   empty: { alignItems: "center", paddingTop: 48 },
   emptyText: { fontSize: 14, color: c.placeholder, textAlign: "center", lineHeight: 22 },
@@ -1321,8 +1369,10 @@ function makeStyles(c: Colors, isDark = false) { return StyleSheet.create({
   backBtnText: { fontSize: 16, color: c.text, fontWeight: "500" },
   modalContent: { padding: 20, paddingBottom: 48 },
   gameInfoRow: { flexDirection: "row", gap: 12, flexWrap: "wrap", marginBottom: 8 },
+  gameInfoItem: { flexDirection: "row", alignItems: "center", gap: 4 },
   gameInfoText: { fontSize: 13, color: c.textMuted },
-  chatRowBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, marginBottom: 4, gap: 10 },
+  chatRowBtn: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, marginBottom: 4 },
+  chatRowLeft: { flexDirection: "row", alignItems: "center", gap: 10 },
   inviteRowBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, marginBottom: 16, gap: 8 },
   modalFooter: { paddingHorizontal: 20, paddingVertical: 12, borderTopWidth: 1, borderTopColor: c.borderLight },
   joinFooterBtn: { backgroundColor: "#4CAF50", borderRadius: 12, paddingVertical: 14, alignItems: "center" },
@@ -1338,9 +1388,7 @@ function makeStyles(c: Colors, isDark = false) { return StyleSheet.create({
   waitlistPosText: { color: "#e65100", fontWeight: "600", fontSize: 14 },
   leaveWaitlistFooterBtn: { paddingHorizontal: 16, paddingVertical: 14, borderRadius: 12, backgroundColor: "#fff3e0", borderWidth: 1, borderColor: "#ffe0b2" },
   leaveWaitlistFooterBtnText: { color: "#e65100", fontWeight: "600", fontSize: 14 },
-  chatRowIcon: { fontSize: 18 },
   chatRowText: { fontSize: 15, fontWeight: "500", color: c.text },
-  chatRowArrow: { fontSize: 18, color: c.placeholder },
   participantCard: { flexDirection: "row", alignItems: "center", backgroundColor: c.surface, borderRadius: 12, borderWidth: 1, borderColor: c.border, padding: 12, marginBottom: 10 },
   participantAvatarRing: { borderRadius: 25, padding: 2, marginRight: 12 },
   participantAvatar: { width: 44, height: 44, borderRadius: 22 },
@@ -1385,7 +1433,6 @@ function makeStyles(c: Colors, isDark = false) { return StyleSheet.create({
   leaveModalTitle: { fontSize: 20, fontWeight: "700", color: c.text, marginBottom: 4 },
   leaveModalSport: { fontSize: 13, color: c.textFaint, marginBottom: 20 },
   leaveWarningBox: { flexDirection: "row", alignItems: "flex-start", gap: 10, backgroundColor: isDark ? "rgba(255,224,130,0.1)" : "#fff8e1", borderRadius: 12, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: isDark ? "rgba(255,224,130,0.22)" : "#ffe082" },
-  leaveWarningIcon: { fontSize: 18, marginTop: 1 },
   leaveWarningText: { flex: 1, fontSize: 14, color: "#5d4037", lineHeight: 20 },
   leaveWarningBold: { fontWeight: "700", color: "#e65100" },
   leaveHowToBox: { backgroundColor: c.borderLight, borderRadius: 12, padding: 14, marginBottom: 24 },
@@ -1401,7 +1448,7 @@ function makeStyles(c: Colors, isDark = false) { return StyleSheet.create({
   searchBar: { flex: 1, flexDirection: "row", alignItems: "center", backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 9 },
   searchIcon: { fontSize: 14, color: c.textFaint, marginRight: 6 },
   searchInput: { flex: 1, fontSize: 14, color: c.text },
-  searchClear: { fontSize: 14, color: c.placeholder, paddingLeft: 8 },
+  searchClear: { paddingLeft: 8 },
   filterToggleBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 12, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface },
   filterToggleBtnActive: { backgroundColor: c.primary, borderColor: c.primary },
   filterToggleIcon: { fontSize: 10, color: c.textMuted },
@@ -1416,6 +1463,7 @@ function makeStyles(c: Colors, isDark = false) { return StyleSheet.create({
   dayChipText: { fontSize: 13, color: c.textMuted },
   dayChipTextActive: { color: c.primaryText, fontWeight: "600" },
   clearDateFilter: { marginTop: 12, alignSelf: "center" },
+  clearDateFilterRow: { flexDirection: "row", alignItems: "center", gap: 4 },
   clearDateFilterText: { fontSize: 12, color: "#e53935", fontWeight: "500" },
   calendarContainer: { backgroundColor: c.input, borderRadius: 10, padding: 8, borderWidth: 1, borderColor: c.borderLight },
   calendarHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
@@ -1435,12 +1483,12 @@ function makeStyles(c: Colors, isDark = false) { return StyleSheet.create({
   calDayTextToday: { color: "#22c55e", fontWeight: "700" },
   gameActionRow: { flexDirection: "row", gap: 10, marginBottom: 16 },
   gameActionBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, borderRadius: 12, paddingVertical: 12 },
-  gameActionIcon: { fontSize: 16 },
   gameActionText: { fontSize: 13, fontWeight: "600", color: c.text },
   inviteFriendRow: { flexDirection: "row", alignItems: "center", backgroundColor: c.surface, borderRadius: 12, borderWidth: 1, borderColor: c.border, padding: 12, marginBottom: 10, gap: 12 },
   inviteFriendName: { flex: 1, fontSize: 15, fontWeight: "600", color: c.text },
   inviteBtn: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8, backgroundColor: c.primary },
   inviteBtnText: { fontSize: 13, fontWeight: "600", color: c.primaryText },
   invitedBadge: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, backgroundColor: "#e8f5e9" },
+  invitedBadgeRow: { flexDirection: "row", alignItems: "center", gap: 4 },
   invitedBadgeText: { fontSize: 13, fontWeight: "600", color: "#2e7d32" },
 }); }
