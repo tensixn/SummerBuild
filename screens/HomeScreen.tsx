@@ -1060,7 +1060,7 @@ const fetchGames = useCallback(async () => {
               <View style={styles.gameInfoRow}>
                 <Text style={styles.gameInfoText}>🕐 {selectedGame ? formatTime(selectedGame.start_time) : ""}</Text>
                 <Text style={styles.gameInfoText}>👥 {selectedGame?.current_players}/{selectedGame?.max_players} players</Text>
-                <Text style={styles.gameInfoText}>⚡ {selectedGame?.skill_level}</Text>
+                <Text style={styles.gameInfoText}>🏠 {selectedGame?.skill_level}</Text>
               </View>
               <Pressable
                 style={styles.chatRowBtn}
