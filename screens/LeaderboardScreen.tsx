@@ -88,8 +88,17 @@ export default function LeaderboardScreen() {
   const [viewportHeight, setViewportHeight] = useState(0);
 
   const scrollRef = useRef<ScrollView>(null);
-  const myRowY = useRef<number>(-1);
-  const myRowHeight = useRef<number>(ROW_HEIGHT_ESTIMATE);
+  // State (not refs) so that recording the row's real position re-triggers
+  // the showFindMe computation below — a ref update alone wouldn't re-render,
+  // leaving the button stuck showing its pre-layout (-1) value briefly.
+  const [myRowY, setMyRowY] = useState<number>(-1);
+  const [myRowHeight, setMyRowHeight] = useState<number>(ROW_HEIGHT_ESTIMATE);
+  // Bumped on every data refetch so "my row" remounts (see row `key` below).
+  // RN only calls onLayout when a view's measured layout actually changes —
+  // if your rank lands at the same y as before (e.g. #1 in both Global and
+  // Friends), onLayout never fires again and myRowY would stay stuck at the
+  // -1 we reset it to. Remounting guarantees a fresh measurement every time.
+  const [dataGen, setDataGen] = useState(0);
 
   const fetchLeaderboard = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -114,6 +123,7 @@ export default function LeaderboardScreen() {
     const closedGames = closedGamesRes.data;
     if (!closedGames || closedGames.length === 0) {
       setAllEntries([]);
+      setDataGen((g) => g + 1);
       return;
     }
 
@@ -129,6 +139,7 @@ export default function LeaderboardScreen() {
 
     if (!participants || participants.length === 0) {
       setAllEntries([]);
+      setDataGen((g) => g + 1);
       return;
     }
 
@@ -164,17 +175,18 @@ export default function LeaderboardScreen() {
         longest: s.longest,
       }))
     );
+    setDataGen((g) => g + 1);
   }, []);
 
   useEffect(() => {
     setLoading(true);
-    myRowY.current = -1;
+    setMyRowY(-1);
     fetchLeaderboard().finally(() => setLoading(false));
   }, [fetchLeaderboard]);
 
   async function onRefresh() {
     setRefreshing(true);
-    myRowY.current = -1;
+    setMyRowY(-1);
     await fetchLeaderboard();
     setRefreshing(false);
   }
@@ -189,14 +201,14 @@ export default function LeaderboardScreen() {
   }, [mode, allEntries, currentUserId, friendIds]);
 
   function scrollToMe() {
-    if (myRowY.current >= 0) {
-      scrollRef.current?.scrollTo({ y: Math.max(0, myRowY.current - 20), animated: true });
+    if (myRowY >= 0) {
+      scrollRef.current?.scrollTo({ y: Math.max(0, myRowY - 20), animated: true });
     }
   }
 
   // Reset scroll + row position when switching tabs
   function switchMode(next: "global" | "friends") {
-    myRowY.current = -1;
+    setMyRowY(-1);
     setMode(next);
     setScrollY(0);
     scrollRef.current?.scrollTo({ y: 0, animated: false });
@@ -207,8 +219,8 @@ export default function LeaderboardScreen() {
   // tab bar covers at the bottom. Row is visible if it overlaps that window at all.
   const visibleTop = scrollY;
   const visibleBottom = scrollY + viewportHeight - BOTTOM_OBSCURED_HEIGHT;
-  const rowTop = myRowY.current;
-  const rowBottom = rowTop + myRowHeight.current;
+  const rowTop = myRowY;
+  const rowBottom = rowTop + myRowHeight;
   const myRowVisible = rowTop >= 0 && viewportHeight > 0 && rowBottom > visibleTop && rowTop < visibleBottom;
   const showFindMe = !loading && meIndex >= 0 && !myRowVisible;
 
@@ -271,15 +283,15 @@ export default function LeaderboardScreen() {
 
               return (
                 <View
-                  key={entry.userId}
+                  key={`${mode}-${dataGen}-${entry.userId}`}
                   style={[
                     styles.row,
                     rowStyle,
                     isTop3 && { borderColor: tierColor + "40" },
                   ]}
                   onLayout={isMe ? (e) => {
-                    myRowY.current = e.nativeEvent.layout.y;
-                    myRowHeight.current = e.nativeEvent.layout.height;
+                    setMyRowY(e.nativeEvent.layout.y);
+                    setMyRowHeight(e.nativeEvent.layout.height);
                   } : undefined}
                 >
                   <View style={styles.rankBox}>
