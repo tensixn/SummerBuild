@@ -124,7 +124,7 @@ export default function MapScreen() {
 
   const fetchGames = useCallback(async () => {
     const { data } = await supabase
-      .from("games_with_counts").select("*").eq("status", "open").order("start_time", { ascending: true });
+      .from("games_with_counts").select("*").in("status", ["open", "in_progress"]).order("start_time", { ascending: true });
     if (data) setGames(data);
     setLoadingGames(false);
   }, []);
@@ -435,8 +435,9 @@ export default function MapScreen() {
                     )}
                     <View style={styles.sportsRow}>
                       {selectedCourt.sports.map((s) => (
-                        <View key={s} style={[styles.sportTag, { backgroundColor: SPORT_COLORS[s] + "22" }]}>
-                          <Text style={[styles.sportTagText, { color: SPORT_COLORS[s] }]}>{SPORT_EMOJI[s]} {s}</Text>
+                        <View key={s} style={[styles.sportTag, styles.sportTagRow, { backgroundColor: SPORT_COLORS[s] + "22" }]}>
+                          <MaterialCommunityIcons name={SPORT_ICON[s]} size={12} color={SPORT_COLORS[s]} />
+                          <Text style={[styles.sportTagText, { color: SPORT_COLORS[s] }]}>{s}</Text>
                         </View>
                       ))}
                     </View>
@@ -647,6 +648,7 @@ function makeStyles(c: Colors) { return StyleSheet.create({
   sheetDist: { fontSize: 12, color: "#1565c0", marginBottom: 8, fontWeight: "500" },
   sportsRow: { flexDirection: "row", gap: 6, flexWrap: "wrap" },
   sportTag: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
+  sportTagRow: { flexDirection: "row", alignItems: "center", gap: 4 },
   sportTagText: { fontSize: 11, fontWeight: "600" },
   sheetSectionLabel: {
     fontSize: 11, fontWeight: "600", letterSpacing: 0.6,
