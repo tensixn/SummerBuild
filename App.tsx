@@ -120,7 +120,7 @@ function AppContent() {
         <View style={[styles.navWrapper, { bottom: Math.max((insets.bottom || 0) - 10, 4) }]}>
           <BlurView intensity={70} tint={isDark ? "dark" : "light"} style={styles.nav}>
             <Pressable style={styles.navItem} onPress={() => setTab("games")}>
-              <Ionicons name={tab === "games" ? "flash" : "flash-outline"} size={26} color={tab === "games" ? "#22c55e" : "#9e9e9e"} />
+              <Ionicons name={tab === "games" ? "home" : "home-outline"} size={26} color={tab === "games" ? "#22c55e" : "#9e9e9e"} />
             </Pressable>
             <Pressable style={styles.navItem} onPress={() => setTab("map")}>
               <Ionicons name={tab === "map" ? "map" : "map-outline"} size={26} color={tab === "map" ? "#22c55e" : "#9e9e9e"} />
