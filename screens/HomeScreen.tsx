@@ -664,7 +664,7 @@ const fetchGames = useCallback(async () => {
       await supabase.from("reviews").insert(
         reviewEntries.map(([userId, comment]) => ({
           profile_id: userId,
-          reviewer_name: user.email?.split("@")[0] ?? "Anonymous",
+          reviewer_name: currentUsername ?? user.email?.split("@")[0] ?? "Anonymous",
           comment: comment.trim(),
         }))
       );
