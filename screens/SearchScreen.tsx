@@ -50,8 +50,6 @@ export default function SearchScreen() {
   const [currentUsername, setCurrentUsername] = useState<string | null>(null);
   const [selectedProfile, setSelectedProfile] = useState<SearchResult | null>(null);
   const [profileReviews, setProfileReviews] = useState<Review[]>([]);
-  const [reviewText, setReviewText] = useState("");
-  const [submittingReview, setSubmittingReview] = useState(false);
   const [joinedGames, setJoinedGames] = useState<Game[]>([]);
   const [createdGames, setCreatedGames] = useState<Game[]>([]);
   const [profileRatingAvg, setProfileRatingAvg] = useState<string | null>(null);
@@ -208,11 +206,11 @@ export default function SearchScreen() {
     }
 
     const { data: participations } = await supabase
-      .from("game_participants").select("game_id").eq("user_name", item.username);
-    if (participations && participations.length > 0) {
-      const gameIds = participations.map((p: any) => p.game_id);
+      .from("game_participants").select("game_id").eq("user_id", item.id);
+    const participantGameIds = (participations ?? []).map((p: any) => p.game_id as string);
+    if (participantGameIds.length > 0) {
       const { data: games } = await supabase
-        .from("games_with_counts").select("*").in("id", gameIds).order("start_time", { ascending: false });
+        .from("games_with_counts").select("*").in("id", participantGameIds).order("start_time", { ascending: false });
       if (games) setJoinedGames(games);
     }
 
@@ -271,22 +269,6 @@ export default function SearchScreen() {
     updateFriendStatus(requesterId, "none");
   }
 
-  async function submitReview() {
-    if (!reviewText.trim() || !selectedProfile) return;
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    setSubmittingReview(true);
-    const { error } = await supabase.from("reviews").insert({
-      profile_id: selectedProfile.id,
-      reviewer_name: currentUsername ?? user.email?.split("@")[0] ?? "Anonymous",
-      comment: reviewText.trim(),
-    });
-    setSubmittingReview(false);
-    if (error) { Alert.alert("Error", error.message); return; }
-    setReviewText("");
-    const { data: reviews } = await supabase.from("reviews").select("*").eq("profile_id", selectedProfile.id).order("created_at", { ascending: false });
-    if (reviews) setProfileReviews(reviews);
-  }
 
   function formatTime(isoString: string) {
     const diff = new Date(isoString).getTime() - Date.now();
@@ -397,14 +379,6 @@ export default function SearchScreen() {
             ) : (
               <Text style={styles.noSportsText}>No sports interests listed.</Text>
             )}
-          </View>
-
-          <Text style={styles.sectionLabel}>Leave a Review</Text>
-          <View style={styles.reviewInputRow}>
-            <TextInput style={styles.reviewInput} placeholder="Write a comment..." value={reviewText} onChangeText={setReviewText} multiline />
-            <Pressable style={[styles.reviewSubmitBtn, !reviewText.trim() && styles.reviewSubmitBtnDisabled]} onPress={submitReview} disabled={submittingReview || !reviewText.trim()}>
-              <Text style={styles.reviewSubmitText}>Post</Text>
-            </Pressable>
           </View>
 
           <Text style={styles.sectionLabel}>Reviews ({profileReviews.length})</Text>

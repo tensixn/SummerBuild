@@ -136,8 +136,6 @@ export default function ProfileScreen() {
   const [editing, setEditing] = useState(false);
   const [username, setUsername] = useState("");
   const [selectedSports, setSelectedSports] = useState<string[]>([]);
-  const [reviewText, setReviewText] = useState("");
-  const [submittingReview, setSubmittingReview] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
   const [friends, setFriends] = useState<Profile[]>([]);
@@ -148,11 +146,6 @@ export default function ProfileScreen() {
   const [showFriendReviews, setShowFriendReviews] = useState(false);
   const [ownRatings, setOwnRatings] = useState<Rating[]>([]);
   const [friendRatings, setFriendRatings] = useState<Rating[]>([]);
-  const [myRatingForFriend, setMyRatingForFriend] = useState<Rating | null>(null);
-  const [canRateFriend, setCanRateFriend] = useState(false);
-  const [ratingStars, setRatingStars] = useState(0);
-  const [ratingComment, setRatingComment] = useState("");
-  const [submittingRating, setSubmittingRating] = useState(false);
   const [recentlyAbandoned, setRecentlyAbandoned] = useState(false);
   const [abandonedCount, setAbandonedCount] = useState(0);
   const [showSettings, setShowSettings] = useState(false);
@@ -177,8 +170,7 @@ export default function ProfileScreen() {
   const [friendReviews, setFriendReviews] = useState<Review[]>([]);
   const [friendUpcomingGames, setFriendUpcomingGames] = useState<Game[]>([]);
   const [loadingFriend, setLoadingFriend] = useState(false);
-  const [friendReviewText, setFriendReviewText] = useState("");
-  const [submittingFriendReview, setSubmittingFriendReview] = useState(false);
+  const [myGameJoinedIds, setMyGameJoinedIds] = useState<Set<string>>(new Set());
 
   const fetchProfile = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -291,27 +283,16 @@ export default function ProfileScreen() {
     setLoadingFriend(true);
     setSelectedFriend(friend);
     setFriendRatings([]);
-    setMyRatingForFriend(null);
-    setCanRateFriend(false);
-    setRatingStars(0);
-    setRatingComment("");
     setFriendCurrentStreak(0);
     setFriendLongestStreak(0);
-
-    const { data: { user } } = await supabase.auth.getUser();
+    setMyGameJoinedIds(new Set());
 
     const [reviewsRes, ratingsRes] = await Promise.all([
       supabase.from("reviews").select("*").eq("profile_id", friend.id).order("created_at", { ascending: false }),
       supabase.from("ratings").select("*").eq("rated_id", friend.id).order("created_at", { ascending: false }),
     ]);
     if (reviewsRes.data) setFriendReviews(reviewsRes.data);
-    if (ratingsRes.data) {
-      setFriendRatings(ratingsRes.data);
-      if (user) {
-        const mine = ratingsRes.data.find((r: any) => r.rater_id === user.id) ?? null;
-        setMyRatingForFriend(mine);
-      }
-    }
+    if (ratingsRes.data) setFriendRatings(ratingsRes.data);
 
     const { data: participations } = await supabase.from("game_participants").select("game_id").eq("user_id", friend.id);
     const participantGameIds = (participations ?? []).map((p: any) => p.game_id as string);
@@ -327,17 +308,12 @@ export default function ProfileScreen() {
     merged.sort((a: Game, b: Game) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime());
     setFriendUpcomingGames(merged);
 
-    if (user && participantGameIds.length > 0) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
       const { data: myParts } = await supabase.from("game_participants").select("game_id").eq("user_id", user.id);
-      if (myParts && myParts.length > 0) {
-        const myIds = myParts.map((p: any) => p.game_id as string);
-        const sharedIds = participantGameIds.filter(id => myIds.includes(id));
-        if (sharedIds.length > 0) {
-          const { data: completed } = await supabase.from("games").select("id").in("id", sharedIds).eq("status", "completed").limit(1);
-          setCanRateFriend((completed?.length ?? 0) > 0);
-        }
-      }
+      setMyGameJoinedIds(new Set((myParts ?? []).map((p: any) => p.game_id as string)));
     }
+
     const { data: friendParts } = await supabase.from("game_participants").select("game_id").eq("user_id", friend.id);
     if (friendParts && friendParts.length > 0) {
       const friendIds = friendParts.map((p: any) => p.game_id);
@@ -350,6 +326,23 @@ export default function ProfileScreen() {
       }
     }
     setLoadingFriend(false);
+  }
+
+  async function joinFriendGame(game: Game) {
+    if (game.status === "in_progress" || new Date(game.start_time) <= new Date()) {
+      Alert.alert("Game in progress", "This game has already started and can no longer be joined.");
+      return;
+    }
+    if (game.current_players >= game.max_players) {
+      Alert.alert("Full", "This game is already full.");
+      return;
+    }
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { error } = await supabase.from("game_participants").insert({ game_id: game.id, user_name: user.email, user_id: user.id });
+    if (error) { Alert.alert("Error", error.message); return; }
+    setMyGameJoinedIds((prev) => new Set(prev).add(game.id));
+    setFriendUpcomingGames((prev) => prev.map((g) => g.id === game.id ? { ...g, current_players: g.current_players + 1 } : g));
   }
 
   function confirmRemoveFriend(friend: Profile) {
@@ -371,34 +364,6 @@ export default function ProfileScreen() {
     setSelectedFriend(null);
     setFriendReviews([]);
     setFriendUpcomingGames([]);
-    setFriendReviewText("");
-  }
-
-  async function submitRating() {
-    if (ratingStars === 0 || !selectedFriend || myRatingForFriend) return;
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    setSubmittingRating(true);
-    const payload = { rater_id: user.id, rated_id: selectedFriend.id, stars: ratingStars, comment: ratingComment.trim() || null };
-    const { data, error } = await supabase.from("ratings").insert(payload).select().single();
-    setSubmittingRating(false);
-    if (error) { Alert.alert("Error", error.message); return; }
-    if (data) setMyRatingForFriend(data);
-    const { data: updated } = await supabase.from("ratings").select("*").eq("rated_id", selectedFriend.id).order("created_at", { ascending: false });
-    if (updated) setFriendRatings(updated);
-  }
-
-  async function submitFriendReview() {
-    if (!friendReviewText.trim() || !selectedFriend) return;
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    setSubmittingFriendReview(true);
-    const { error } = await supabase.from("reviews").insert({ profile_id: selectedFriend.id, reviewer_name: profile?.username ?? user.email?.split("@")[0] ?? "Anonymous", comment: friendReviewText.trim() });
-    setSubmittingFriendReview(false);
-    if (error) { Alert.alert("Error", error.message); return; }
-    setFriendReviewText("");
-    const { data } = await supabase.from("reviews").select("*").eq("profile_id", selectedFriend.id).order("created_at", { ascending: false });
-    if (data) setFriendReviews(data);
   }
 
   async function pickImage() {
@@ -507,18 +472,6 @@ export default function ProfileScreen() {
     setEditing(false);
   }
 
-  async function submitReview() {
-    if (!reviewText.trim()) return;
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user || !profile) return;
-    if (user.id === profile.id) { Alert.alert("Not allowed", "You cannot review yourself."); return; }
-    setSubmittingReview(true);
-    const { error } = await supabase.from("reviews").insert({ profile_id: profile.id, reviewer_name: profile?.username ?? user.email?.split("@")[0] ?? "Anonymous", comment: reviewText.trim() });
-    setSubmittingReview(false);
-    if (error) { Alert.alert("Error", error.message); return; }
-    setReviewText("");
-    fetchReviews();
-  }
 
   function toggleSport(sport: string) {
     setSelectedSports((prev) => prev.includes(sport) ? prev.filter((s) => s !== sport) : [...prev, sport]);
@@ -553,12 +506,38 @@ export default function ProfileScreen() {
     return (
       <View key={game.id} style={styles.gameCard}>
         <View style={styles.gameCardTop}>
-          <Text style={styles.gameCardSport}>{game.sport}</Text>
+          <Text style={styles.gameCardSport} numberOfLines={1}>{game.sport}</Text>
           <Text style={styles.gameCardTime}>{formatTime(game.start_time)}</Text>
         </View>
-        <Text style={styles.gameCardLocation}>{game.location}</Text>
+        <Text style={styles.gameCardLocation} numberOfLines={1}>{game.location}</Text>
         <Text style={styles.gameCardMeta}>{game.current_players}/{game.max_players} players · {game.skill_level}</Text>
       </View>
+    );
+  }
+
+  function renderJoinButton(game: Game, variant: "next" | "upcoming") {
+    const isJoined = myGameJoinedIds.has(game.id);
+    const isFull = game.current_players >= game.max_players;
+    const isStarted = game.status === "in_progress" || new Date(game.start_time) <= new Date();
+
+    if (isJoined) {
+      return (
+        <View style={variant === "next" ? styles.nextJoinedBadge : styles.joinedBadgeFull}>
+          <Text style={variant === "next" ? styles.nextJoinedBadgeText : styles.joinedBadgeFullText}>Joined</Text>
+        </View>
+      );
+    }
+    if (isStarted || isFull) {
+      return (
+        <View style={variant === "next" ? styles.nextDisabledBtn : styles.disabledBtnFull}>
+          <Text style={variant === "next" ? styles.nextDisabledBtnText : styles.disabledBtnFullText}>{isStarted ? "In Progress" : "Full"}</Text>
+        </View>
+      );
+    }
+    return (
+      <Pressable style={variant === "next" ? styles.nextJoinBtn : styles.joinBtnFull} onPress={() => joinFriendGame(game)}>
+        <Text style={variant === "next" ? styles.nextJoinBtnText : styles.joinBtnFullText}>Join Game</Text>
+      </Pressable>
     );
   }
 
@@ -684,17 +663,6 @@ export default function ProfileScreen() {
           </View>
         )}
 
-        {!isOwnProfile && (
-          <>
-            <Text style={styles.sectionLabel}>Leave a Review</Text>
-            <View style={styles.reviewInputRow}>
-              <TextInput style={styles.reviewInput} placeholder="Write a comment..." value={reviewText} onChangeText={setReviewText} multiline />
-              <Pressable style={[styles.reviewSubmitBtn, !reviewText.trim() && styles.reviewSubmitBtnDisabled]} onPress={submitReview} disabled={submittingReview || !reviewText.trim()}>
-                <Text style={styles.reviewSubmitText}>Post</Text>
-              </Pressable>
-            </View>
-          </>
-        )}
 
         <Pressable style={styles.collapsibleHeader} onPress={() => setShowReviews((v) => !v)}>
           <Text style={styles.sectionLabel}>Reviews ({reviews.length})</Text>
@@ -948,10 +916,10 @@ export default function ProfileScreen() {
       <Modal visible={selectedFriend !== null} animationType="slide" presentationStyle="pageSheet">
         <SafeAreaView style={styles.modalSafe}>
           <View style={styles.modalHeader}>
-            <Pressable onPress={() => { setSelectedFriend(null); setFriendReviews([]); setFriendRatings([]); setFriendUpcomingGames([]); setFriendReviewText(""); setShowFriendReviews(false); setRatingStars(0); setRatingComment(""); }} style={{ flex: 1 }}>
+            <Pressable onPress={() => { setSelectedFriend(null); setFriendReviews([]); setFriendRatings([]); setFriendUpcomingGames([]); setShowFriendReviews(false); }} style={{ flex: 1 }}>
               <Text style={styles.backBtnText}>‹ Friends</Text>
             </Pressable>
-            <CloseButton onPress={() => { setSelectedFriend(null); setActiveModal(null); setFriendReviews([]); setFriendRatings([]); setFriendUpcomingGames([]); setFriendReviewText(""); setShowFriendReviews(false); setRatingStars(0); setRatingComment(""); }} />
+            <CloseButton onPress={() => { setSelectedFriend(null); setActiveModal(null); setFriendReviews([]); setFriendRatings([]); setFriendUpcomingGames([]); setShowFriendReviews(false); }} />
           </View>
 
           {loadingFriend ? (
@@ -1008,19 +976,22 @@ export default function ProfileScreen() {
 
               {/* Next upcoming game shown prominently below sports interests */}
               {friendUpcomingGames.length > 0 && (
-                <View style={styles.nextGameCard}>
-                  <Text style={styles.nextGameLabel}>Next Game</Text>
-                  <View style={styles.gameCardTop}>
-                    <Text style={styles.nextGameSport}>{friendUpcomingGames[0].sport}</Text>
-                    <Text style={styles.nextGameTime}>{formatTime(friendUpcomingGames[0].start_time, friendUpcomingGames[0].status)}</Text>
+                <>
+                  <Text style={styles.sectionLabel}>Next Game</Text>
+                  <View style={styles.nextGameCard}>
+                    <View style={styles.gameCardTop}>
+                      <Text style={styles.nextGameSport} numberOfLines={1}>{friendUpcomingGames[0].sport}</Text>
+                      <Text style={styles.nextGameTime}>{formatTime(friendUpcomingGames[0].start_time, friendUpcomingGames[0].status)}</Text>
+                    </View>
+                    <View style={styles.nextGameLocationRow}>
+                      <Ionicons name="location-outline" size={13} color="rgba(255,255,255,0.9)" />
+                      <Text style={styles.nextGameLocation} numberOfLines={1}>{friendUpcomingGames[0].location}</Text>
+                    </View>
+                    <Text style={styles.nextGameDate}>{formatDate(friendUpcomingGames[0].start_time)}</Text>
+                    <Text style={styles.nextGameMeta}>{friendUpcomingGames[0].current_players}/{friendUpcomingGames[0].max_players} players · {friendUpcomingGames[0].skill_level}</Text>
+                    {renderJoinButton(friendUpcomingGames[0], "next")}
                   </View>
-                  <View style={styles.nextGameLocationRow}>
-                    <Ionicons name="location-outline" size={13} color="rgba(255,255,255,0.9)" />
-                    <Text style={styles.nextGameLocation}>{friendUpcomingGames[0].location}</Text>
-                  </View>
-                  <Text style={styles.nextGameDate}>{formatDate(friendUpcomingGames[0].start_time)}</Text>
-                  <Text style={styles.nextGameMeta}>{friendUpcomingGames[0].current_players}/{friendUpcomingGames[0].max_players} players · {friendUpcomingGames[0].skill_level}</Text>
-                </View>
+                </>
               )}
 
               <Text style={styles.sectionLabel}>Upcoming Games ({friendUpcomingGames.length})</Text>
@@ -1030,55 +1001,19 @@ export default function ProfileScreen() {
                 friendUpcomingGames.map((game, i) => (
                   <View key={game.id} style={[styles.upcomingGameCard, i === 0 && styles.upcomingGameCardFirst]}>
                     <View style={styles.gameCardTop}>
-                      <Text style={styles.upcomingGameSport}>{game.sport}</Text>
+                      <Text style={styles.upcomingGameSport} numberOfLines={1}>{game.sport}</Text>
                       <Text style={styles.upcomingGameTime}>{formatTime(game.start_time, game.status)}</Text>
                     </View>
                     <View style={styles.upcomingGameLocationRow}>
                       <Ionicons name="location-outline" size={13} color={colors.textSub} />
-                      <Text style={styles.upcomingGameLocation}>{game.location}</Text>
+                      <Text style={styles.upcomingGameLocation} numberOfLines={1}>{game.location}</Text>
                     </View>
                     <Text style={styles.upcomingGameDate}>{formatDate(game.start_time)}</Text>
                     <Text style={styles.upcomingGameMeta}>{game.current_players}/{game.max_players} players · {game.skill_level}</Text>
+                    {renderJoinButton(game, "upcoming")}
                   </View>
                 ))
               )}
-
-              {(canRateFriend || myRatingForFriend) && (
-                <>
-                  <Text style={styles.sectionLabel}>{myRatingForFriend ? "Your Rating" : "Rate Player"}</Text>
-                  {myRatingForFriend ? (
-                    <View style={styles.starSelector}>
-                      {[1, 2, 3, 4].map((s) => (
-                        <Text key={s} style={[styles.starBtn, { color: s <= myRatingForFriend.stars ? "#f59e0b" : "#e0e0e0" }]}>★</Text>
-                      ))}
-                    </View>
-                  ) : (
-                    <>
-                      <View style={styles.starSelector}>
-                        {[1, 2, 3, 4].map((s) => (
-                          <Pressable key={s} onPress={() => setRatingStars(s)}>
-                            <Text style={[styles.starBtn, { color: s <= ratingStars ? "#f59e0b" : "#e0e0e0" }]}>★</Text>
-                          </Pressable>
-                        ))}
-                      </View>
-                      <View style={styles.reviewInputRow}>
-                        <TextInput style={styles.reviewInput} placeholder="Write a review (optional)..." value={ratingComment} onChangeText={setRatingComment} multiline />
-                        <Pressable style={[styles.reviewSubmitBtn, ratingStars === 0 && styles.reviewSubmitBtnDisabled]} onPress={submitRating} disabled={submittingRating || ratingStars === 0}>
-                          <Text style={styles.reviewSubmitText}>Submit</Text>
-                        </Pressable>
-                      </View>
-                    </>
-                  )}
-                </>
-              )}
-
-              <Text style={styles.sectionLabel}>Leave a Review</Text>
-              <View style={styles.reviewInputRow}>
-                <TextInput style={styles.reviewInput} placeholder="Write a comment..." value={friendReviewText} onChangeText={setFriendReviewText} multiline />
-                <Pressable style={[styles.reviewSubmitBtn, !friendReviewText.trim() && styles.reviewSubmitBtnDisabled]} onPress={submitFriendReview} disabled={submittingFriendReview || !friendReviewText.trim()}>
-                  <Text style={styles.reviewSubmitText}>Post</Text>
-                </Pressable>
-              </View>
 
               <Pressable style={styles.collapsibleHeader} onPress={() => setShowFriendReviews((v) => !v)}>
                 <Text style={styles.sectionLabel}>Reviews ({friendReviews.length})</Text>
@@ -1185,8 +1120,6 @@ function makeStyles(c: Colors) { return StyleSheet.create({
   ratingCardHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 6 },
   ratingDate: { fontSize: 11, color: c.textFaint },
   ratingComment: { fontSize: 13, color: c.textSub, lineHeight: 20 },
-  starSelector: { flexDirection: "row", gap: 8, marginBottom: 12 },
-  starBtn: { fontSize: 32 },
   backBtnText: { fontSize: 16, color: c.text, fontWeight: "500" },
   actionGroup: { marginTop: 32, backgroundColor: c.surface, borderRadius: 12, borderWidth: 1, borderColor: c.border, overflow: "hidden" },
   actionRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 14 },
@@ -1217,23 +1150,34 @@ function makeStyles(c: Colors) { return StyleSheet.create({
   modalList: { padding: 20, paddingBottom: 48 },
   gameCard: { backgroundColor: c.surface, borderRadius: 12, borderWidth: 1, borderColor: c.border, padding: 14, marginBottom: 10 },
   nextGameCard: { backgroundColor: "#4CAF50", borderRadius: 14, padding: 16, marginBottom: 16 },
-  nextGameLabel: { fontSize: 11, fontWeight: "700", color: "rgba(255,255,255,0.75)", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 6 },
-  nextGameSport: { fontSize: 18, fontWeight: "700", color: "#fff", flex: 1 },
+  nextGameSport: { fontSize: 18, fontWeight: "700", color: "#fff", flex: 1, marginRight: 8 },
   nextGameTime: { fontSize: 13, fontWeight: "600", color: "rgba(255,255,255,0.85)" },
   nextGameLocationRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 },
-  nextGameLocation: { fontSize: 13, color: "rgba(255,255,255,0.9)" },
+  nextGameLocation: { fontSize: 13, color: "rgba(255,255,255,0.9)", flex: 1 },
   nextGameDate: { fontSize: 12, color: "rgba(255,255,255,0.75)", marginTop: 2 },
   nextGameMeta: { fontSize: 12, color: "rgba(255,255,255,0.75)", marginTop: 4 },
+  nextJoinBtn: { backgroundColor: "#fff", borderRadius: 12, paddingVertical: 14, alignItems: "center", marginTop: 12 },
+  nextJoinBtnText: { color: "#2e7d32", fontWeight: "700", fontSize: 15 },
+  nextJoinedBadge: { backgroundColor: "rgba(255,255,255,0.2)", borderRadius: 12, paddingVertical: 14, alignItems: "center", marginTop: 12 },
+  nextJoinedBadgeText: { color: "#fff", fontWeight: "700", fontSize: 15 },
+  nextDisabledBtn: { backgroundColor: "rgba(255,255,255,0.15)", borderRadius: 12, paddingVertical: 14, alignItems: "center", marginTop: 12 },
+  nextDisabledBtnText: { color: "rgba(255,255,255,0.8)", fontWeight: "700", fontSize: 15 },
   upcomingGameCard: { backgroundColor: c.surface, borderRadius: 12, borderWidth: 1, borderColor: c.border, padding: 14, marginBottom: 8 },
   upcomingGameCardFirst: { borderColor: "#4CAF50", borderWidth: 1.5 },
-  upcomingGameSport: { fontSize: 15, fontWeight: "600", color: c.text, flex: 1 },
+  upcomingGameSport: { fontSize: 15, fontWeight: "600", color: c.text, flex: 1, marginRight: 8 },
   upcomingGameTime: { fontSize: 13, fontWeight: "500", color: c.textSub },
   upcomingGameLocationRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 3 },
-  upcomingGameLocation: { fontSize: 13, color: c.textSub },
+  upcomingGameLocation: { fontSize: 13, color: c.textSub, flex: 1 },
   upcomingGameDate: { fontSize: 12, color: "#4CAF50", marginTop: 2 },
   upcomingGameMeta: { fontSize: 12, color: c.textFaint, marginTop: 3 },
-  gameCardTop: { flexDirection: "row", justifyContent: "space-between", marginBottom: 4 },
-  gameCardSport: { fontSize: 14, fontWeight: "600", color: c.text },
+  joinBtnFull: { backgroundColor: "#4CAF50", borderRadius: 12, paddingVertical: 14, alignItems: "center", marginTop: 12 },
+  joinBtnFullText: { color: "#fff", fontWeight: "700", fontSize: 15 },
+  joinedBadgeFull: { backgroundColor: "#e8f5e9", borderRadius: 12, paddingVertical: 14, alignItems: "center", marginTop: 12, borderWidth: 1, borderColor: "#a5d6a7" },
+  joinedBadgeFullText: { color: "#2e7d32", fontWeight: "700", fontSize: 15 },
+  disabledBtnFull: { backgroundColor: c.borderLight, borderRadius: 12, paddingVertical: 14, alignItems: "center", marginTop: 12 },
+  disabledBtnFullText: { color: c.textFaint, fontWeight: "700", fontSize: 15 },
+  gameCardTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 4 },
+  gameCardSport: { fontSize: 14, fontWeight: "600", color: c.text, flex: 1, marginRight: 8 },
   gameCardTime: { fontSize: 12, color: c.textFaint },
   gameCardLocation: { fontSize: 14, color: c.textSub, marginBottom: 2 },
   gameCardDate: { fontSize: 11, color: "#22c55e", marginBottom: 4 },
